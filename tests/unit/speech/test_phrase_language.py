@@ -26,6 +26,8 @@ from jarvis.speech.pipeline import (
     _ACTION_DONE_PHRASE,
     _BRAIN_UNAVAILABLE_PHRASE,
     _CLARIFY_QUESTION_PHRASE,
+    _PRIVACY_PAUSE_ACK,
+    _PRIVACY_RESUME_ACK,
     _STT_UNAVAILABLE_PHRASE,
     _TIMEOUT_NO_ANSWER_PHRASE,
     _TIMEOUT_TOOL_STALL_PHRASE,
@@ -119,8 +121,39 @@ def test_all_canned_phrase_tables_cover_de_en_es() -> None:
         _TIMEOUT_NO_ANSWER_PHRASE,
         _CLARIFY_QUESTION_PHRASE,
         _ACTION_DONE_PHRASE,
+        _PRIVACY_PAUSE_ACK,
+        _PRIVACY_RESUME_ACK,
     ):
         assert {"de", "en", "es"} <= set(table), table
+
+
+def test_canned_phrases_never_address_the_user_by_a_fixed_name() -> None:
+    # Every install has a different user: a canned phrase that names one (it
+    # used to be the maintainer, "Lo siento, Ruben ...") greets everyone else
+    # with a stranger's name.
+    spoken = [
+        phrase
+        for table in (
+            _BRAIN_UNAVAILABLE_PHRASE,
+            _STT_UNAVAILABLE_PHRASE,
+            _TIMEOUT_TOOL_STALL_PHRASE,
+            _TIMEOUT_NO_ANSWER_PHRASE,
+            _CLARIFY_QUESTION_PHRASE,
+            _ACTION_DONE_PHRASE,
+            _PRIVACY_PAUSE_ACK,
+            _PRIVACY_RESUME_ACK,
+        )
+        for phrase in table.values()
+    ]
+    spoken += [
+        _smalltalk_fallback_for_non_substantive(prompt, lang) or ""
+        for prompt, lang in (
+            ("wie geht es dir", "de"),
+            ("how are you", "en"),
+            ("¿cómo estás?", "es"),
+        )
+    ]
+    assert all("Ruben" not in phrase for phrase in spoken), spoken
 
 
 @pytest.mark.asyncio
@@ -166,8 +199,12 @@ async def test_brain_timeout_phrase_is_german_for_whisper_language_name() -> Non
 def test_smalltalk_fallback_is_german_for_whisper_language_name() -> None:
     answer = _smalltalk_fallback_for_non_substantive("wie geht es dir", "german")
     assert answer is not None
-    assert "Ruben" in answer
     assert "geht's gut" in answer, answer  # the German variant, not "I'm good"
+
+
+def test_smalltalk_fallback_answers_spanish_in_spanish() -> None:
+    answer = _smalltalk_fallback_for_non_substantive("Oye, ¿cómo estás?", "spanish")
+    assert answer == "Todo bien. ¿Qué hacemos ahora?"
 
 
 @pytest.mark.asyncio

@@ -450,17 +450,31 @@ async def _echo_brain(text: str) -> str:
 # voice-output policy; only artifacts must be English.)
 _BRAIN_UNAVAILABLE_PHRASE: dict[str, str] = {
     "de": (
-        "Entschuldige, Ruben — ich erreiche gerade keines meiner Sprachmodelle. "
+        "Entschuldige — ich erreiche gerade keines meiner Sprachmodelle. "
         "Bitte prüf kurz, ob bei den Anbietern noch Guthaben ist."
     ),
     "en": (
-        "Sorry, Ruben — I can't reach any of my language models right now. "
+        "Sorry — I can't reach any of my language models right now. "
         "Please check whether your providers still have credit."
     ),
     "es": (
-        "Lo siento, Ruben — ahora mismo no puedo acceder a ninguno de mis "
+        "Lo siento — ahora mismo no puedo acceder a ninguno de mis "
         "modelos de lenguaje. Comprueba si tus proveedores aún tienen crédito."
     ),
+}
+
+# Spoken acknowledgements of the voice privacy toggle ("don't look" / "look
+# again"), said instead of a brain turn. One per supported language, picked with
+# ``_phrase_lang``; they name nobody, because the user's name is not a constant.
+_PRIVACY_PAUSE_ACK: dict[str, str] = {
+    "de": "Okay, ich schaue nicht mehr hin.",
+    "en": "Okay, I've stopped looking.",
+    "es": "Listo, ya no estoy mirando.",
+}
+_PRIVACY_RESUME_ACK: dict[str, str] = {
+    "de": "Ich sehe wieder.",
+    "en": "I can see again.",
+    "es": "Ya puedo ver otra vez.",
 }
 
 # AD-OE6 zero-silent-drop fallback for the *final* utterance STT. A cloud STT
@@ -1930,12 +1944,17 @@ def _smalltalk_fallback_for_non_substantive(prompt: str, lang: str) -> str | Non
         "wie geht",
         "how are you",
         "how's it going",
+        "cómo estás",
+        "como estas",
     )
     if not any(marker in low for marker in wellbeing_markers):
         return None
-    if _phrase_lang(lang) == "de":
-        return "Mir geht's gut, Ruben. Was machen wir als Naechstes?"
-    return "I'm good, Ruben. What's next?"
+    phrase_lang = _phrase_lang(lang)
+    if phrase_lang == "de":
+        return "Mir geht's gut. Was machen wir als Naechstes?"
+    if phrase_lang == "es":
+        return "Todo bien. ¿Qué hacemos ahora?"
+    return "I'm good. What's next?"
 
 
 _INCOMPLETE_TAIL_RE = re.compile(
@@ -15903,7 +15922,7 @@ class SpeechPipeline:
                 await self._set_turn_state(TurnTakingState.JARVIS_SPEAKING)
                 try:
                     await self._speak(
-                        "Ja, Ruben.",  # i18n-allow: bilingual TTS voice ack
+                        _PRIVACY_PAUSE_ACK[_phrase_lang(lang)],
                         language=lang,
                         kind=SPOKEN_KIND_PRIVACY,
                     )
@@ -15920,7 +15939,7 @@ class SpeechPipeline:
                 await self._set_turn_state(TurnTakingState.JARVIS_SPEAKING)
                 try:
                     await self._speak(
-                        "Ich sehe wieder.",  # i18n-allow: bilingual TTS voice ack
+                        _PRIVACY_RESUME_ACK[_phrase_lang(lang)],
                         language=lang,
                         kind=SPOKEN_KIND_PRIVACY,
                     )

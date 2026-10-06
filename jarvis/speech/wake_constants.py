@@ -136,7 +136,7 @@ def is_silence_hallucination(text: str, duration_s: float) -> bool:
 # lookup and canonical keyword names. The matcher may still keep an explicit
 # prefix when the configured phrase includes one.
 WAKE_PREFIXES: frozenset[str] = frozenset(
-    {"hey", "hi", "ok", "okay", "hello", "hallo", "yo", "hej"}
+    {"hey", "hi", "ok", "okay", "hello", "hallo", "yo", "hej", "oye"}
 )
 
 # Quick-pick phrases the Settings UI could offer as one-click suggestions.
@@ -145,7 +145,10 @@ WAKE_PREFIXES: frozenset[str] = frozenset(
 # every phrase resolves through the generic engine chain.
 INSTANT_WAKE_PHRASES: tuple[str, ...] = ()
 
-_NORMALISE_RE = re.compile(r"[^0-9a-zäöüß]+")  # i18n-allow
+# Display tokens keep every letter of every script, so an accented name stays
+# whole ("Darío" -> "darío", never "dar" + "o"); only digits and letters count
+# as word characters, underscores and punctuation split.
+_NORMALISE_RE = re.compile(r"[\W_]+")
 _MATCH_NORMALISE_RE = re.compile(r"[^0-9a-z]+")
 
 
@@ -159,9 +162,11 @@ def _strip_diacritics(text: str) -> str:
 def normalize_phrase(phrase: str) -> list[str]:
     """Lower-case, strip punctuation, split into word tokens.
 
-    Keeps German umlauts/ß. Empty/whitespace input returns ``[]``.  # i18n-allow
+    Keeps accented and non-Latin letters intact (umlauts, ß, á, ñ ...).  # i18n-allow
+    Empty/whitespace input returns ``[]``.
     """
-    cleaned = _NORMALISE_RE.sub(" ", (phrase or "").lower()).strip()
+    composed = unicodedata.normalize("NFC", phrase or "").lower()
+    cleaned = _NORMALISE_RE.sub(" ", composed).strip()
     return cleaned.split() if cleaned else []
 
 

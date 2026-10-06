@@ -24,4 +24,11 @@ describe("deriveAssistantName", () => {
     expect(deriveAssistantName("ok hey nova")).toBe("Nova");
     expect(deriveAssistantName("Hey Hey Nova")).toBe("Nova");
   });
+
+  it("keeps accented letters inside one word", () => {
+    expect(deriveAssistantName("Darío")).toBe("Darío");
+    expect(deriveAssistantName("dario")).toBe("Dario");
+    expect(deriveAssistantName("Oye Darío")).toBe("Darío");
+    expect(deriveAssistantName("Hey Zoë")).toBe("Zoë");
+  });
 });

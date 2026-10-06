@@ -7,14 +7,16 @@
  * Keep in lockstep with the backend WAKE_PREFIXES set.
  */
 const WAKE_PREFIXES = new Set([
-  "hey", "hi", "ok", "okay", "hello", "hallo", "yo", "hej",
+  "hey", "hi", "ok", "okay", "hello", "hallo", "yo", "hej", "oye",
 ]);
 
 export function deriveAssistantName(phrase: string): string {
-  // normalize_phrase: lower-case, punctuation→space, split (keeps umlauts/ß). i18n-allow
+  // normalize_phrase: lower-case, punctuation→space, split. Every letter of
+  // every script survives, so an accented name stays one word.
   const tokens = (phrase || "")
+    .normalize("NFC")
     .toLowerCase()
-    .replace(/[^0-9a-zäöüß]+/g, " ") // i18n-allow: German-diacritics character class matched in logic
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .split(/\s+/)
     .filter(Boolean);

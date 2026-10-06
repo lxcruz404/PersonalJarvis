@@ -33,6 +33,10 @@ def _cfg(*, persona_name: str = "", wake_phrase: str | None = None) -> SimpleNam
         ("Alexa", "Alexa"),
         ("Hey Computer", "Computer"),
         ("ok friday", "Friday"),
+        ("Darío", "Darío"),          # an accented name stays one word
+        ("dario", "Dario"),
+        ("Oye Darío", "Darío"),      # Spanish wake prefix stripped
+        ("Hey Zoë", "Zoë"),
     ],
 )
 def test_name_derived_from_wake_phrase(phrase, expected):

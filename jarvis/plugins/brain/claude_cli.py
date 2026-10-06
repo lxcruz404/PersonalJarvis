@@ -49,6 +49,7 @@ from jarvis.core.process_utils import NO_WINDOW_CREATIONFLAGS
 from jarvis.core.protocols import BrainDelta, BrainRequest
 
 from .cli_prompt_context import (
+    extract_identity_directive,
     extract_reply_language_directive,
     render_cli_standing_instructions,
     render_structured_prompt,
@@ -79,7 +80,7 @@ _BINARY_CANDIDATES: tuple[str, ...] = ("claude", "claude.cmd", "claude.exe")
 _DISALLOWED_TOOLS: tuple[str, ...] = ("Bash", "Edit", "Write", "NotebookEdit")
 
 _CLI_SYSTEM = (
-    "You are Jarvis, a concise and friendly voice assistant. Answer the user's "
+    "You are the user's concise and friendly voice assistant. Answer the user's "
     "message directly in one to three short sentences. Reply in plain text only "
     "— do not run any commands, do not read or edit files, do not use tools."
 )
@@ -329,7 +330,10 @@ class ClaudeCliBrain:
                 return argv, payload or render_structured_prompt(req)
             return argv, render_structured_prompt(req)
 
-        lines: list[str] = [_CLI_SYSTEM, ""]
+        # The identity sentence opens the prompt so the model answers under the
+        # name the user gave the assistant.
+        identity = extract_identity_directive(req.system)
+        lines: list[str] = [identity, _CLI_SYSTEM, ""] if identity else [_CLI_SYSTEM, ""]
         prefs = render_cli_standing_instructions(req.system)
         convo = [
             message

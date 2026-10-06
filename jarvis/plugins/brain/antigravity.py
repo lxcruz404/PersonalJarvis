@@ -44,6 +44,7 @@ from jarvis.google_cli.pty_runner import repair_agy_path
 from jarvis.google_cli.resolver import GoogleCli, resolve_google_cli
 
 from .cli_prompt_context import (
+    extract_identity_directive,
     extract_reply_language_directive,
     render_cli_standing_instructions,
     render_structured_prompt,
@@ -73,7 +74,7 @@ _DROP_ENV: tuple[str, ...] = (
 )
 
 _CLI_SYSTEM = (
-    "You are Jarvis, a concise and friendly voice assistant. Answer the user's "
+    "You are the user's concise and friendly voice assistant. Answer the user's "
     "message directly in one to three short sentences. Reply in plain text only "
     "— do not run any commands, do not read or edit files, do not use tools."
 )
@@ -112,7 +113,10 @@ def _build_cli_prompt(req: BrainRequest) -> str:
     would make the agent CLI slow and confused. We send a light conversational
     instruction plus the last ~6 user/assistant turns for context.
     """
-    lines: list[str] = [_CLI_SYSTEM, ""]
+    # The identity sentence opens the prompt so the model answers under the
+    # name the user gave the assistant.
+    identity = extract_identity_directive(req.system)
+    lines: list[str] = [identity, _CLI_SYSTEM, ""] if identity else [_CLI_SYSTEM, ""]
     prefs = render_cli_standing_instructions(req.system)
     convo = [
         m

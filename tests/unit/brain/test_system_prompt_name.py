@@ -66,10 +66,11 @@ def test_router_prompt_names_neither_the_assistant_nor_the_user() -> None:
     # (brain/factory.py). It used to open with a hardcoded assistant name and
     # call the user by the maintainer's name, so a renamed assistant was told
     # two names and every user was addressed as someone else.
+    assert "Jarvis" not in ROUTER_SYSTEM_PROMPT
+    assert "Ruben" not in ROUTER_SYSTEM_PROMPT
+    assert "Dispatcher" in ROUTER_SYSTEM_PROMPT
+    # The assembled prompt still names the assistant once, from the wake word.
     prompt = _manager_with_name(
         wake_phrase="Oye Darío", extra=ROUTER_SYSTEM_PROMPT
     )._build_system_prompt()
     assert "Du bist Darío" in prompt
-    assert "Du bist Jarvis" not in prompt
-    assert "Ruben" not in prompt
-    assert "Dispatcher" in ROUTER_SYSTEM_PROMPT

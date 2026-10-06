@@ -21,6 +21,7 @@ import random
 import re
 import threading
 import time
+import unicodedata
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -476,6 +477,12 @@ _PRIVACY_RESUME_ACK: dict[str, str] = {
     "en": "I can see again.",
     "es": "Ya puedo ver otra vez.",
 }
+
+
+def _privacy_ack(action: str, lang: str | None) -> str:
+    """The spoken acknowledgement for a privacy ``"pause"`` or ``"resume"``."""
+    table = _PRIVACY_PAUSE_ACK if action == "pause" else _PRIVACY_RESUME_ACK
+    return table[_phrase_lang(lang)]
 
 # AD-OE6 zero-silent-drop fallback for the *final* utterance STT. A cloud STT
 # (Groq/OpenAI/Deepgram) can transiently 429 when the in-utterance stability
@@ -1933,18 +1940,23 @@ def _strip_paraphrase_prefix(response: str) -> str:
 
 
 def _is_non_substantive_response(response: str) -> bool:
-    """True fuer reine ACK-/Butler-Filler, die nicht gesprochen werden sollen."""
+    """True for pure acknowledgement/butler filler that must not be spoken."""
     return bool(_NON_SUBSTANTIVE_RESPONSE_RE.match(response.strip()))
 
 
 def _smalltalk_fallback_for_non_substantive(prompt: str, lang: str) -> str | None:
     """Return a short answer when a smalltalk prompt produced only filler."""
-    low = prompt.strip().lower()
+    # Accents folded away so "cómo estás", "como estás" and "como estas" all
+    # match one marker, however the words were transcribed or typed.
+    low = "".join(
+        ch
+        for ch in unicodedata.normalize("NFKD", prompt.strip().lower())
+        if not unicodedata.combining(ch)
+    )
     wellbeing_markers = (
         "wie geht",
         "how are you",
         "how's it going",
-        "cómo estás",
         "como estas",
     )
     if not any(marker in low for marker in wellbeing_markers):
@@ -15908,9 +15920,9 @@ class SpeechPipeline:
             self._hold_for_resumed_speech(text, lang)
             return True
 
-        # Privacy-Voice-Toggle (Wave-2 B7): matcht Privacy-Phrasen aus Config,
-        # pausiert/resumed den VisionContextProvider und spricht kurzen ACK
-        # BEVOR das Brain aufgerufen wird. Brain-Call wird uebersprungen.
+        # Voice privacy toggle (Wave-2 B7): match the configured privacy
+        # phrases, pause/resume the VisionContextProvider and speak a short
+        # acknowledgement BEFORE any brain call. The brain call is skipped.
         if self._vision_provider is not None:
             _action = self._match_privacy_phrase(text)
             if _action == "pause":
@@ -15918,16 +15930,16 @@ class SpeechPipeline:
                 try:
                     self._vision_provider.pause()
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("Vision-pause() fehlgeschlagen: %s", exc)
+                    log.warning("Vision pause() failed: %s", exc)
                 await self._set_turn_state(TurnTakingState.JARVIS_SPEAKING)
                 try:
                     await self._speak(
-                        _PRIVACY_PAUSE_ACK[_phrase_lang(lang)],
+                        _privacy_ack("pause", lang),
                         language=lang,
                         kind=SPOKEN_KIND_PRIVACY,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("Privacy-ACK-speak fehlgeschlagen: %s", exc)
+                    log.warning("Speaking the privacy acknowledgement failed: %s", exc)
                 await self._set_turn_state(TurnTakingState.LISTENING)
                 return True
             if _action == "resume":
@@ -15935,16 +15947,16 @@ class SpeechPipeline:
                 try:
                     self._vision_provider.resume()
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("Vision-resume() fehlgeschlagen: %s", exc)
+                    log.warning("Vision resume() failed: %s", exc)
                 await self._set_turn_state(TurnTakingState.JARVIS_SPEAKING)
                 try:
                     await self._speak(
-                        _PRIVACY_RESUME_ACK[_phrase_lang(lang)],
+                        _privacy_ack("resume", lang),
                         language=lang,
                         kind=SPOKEN_KIND_PRIVACY,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("Privacy-ACK-speak fehlgeschlagen: %s", exc)
+                    log.warning("Speaking the privacy acknowledgement failed: %s", exc)
                 await self._set_turn_state(TurnTakingState.LISTENING)
                 return True
 

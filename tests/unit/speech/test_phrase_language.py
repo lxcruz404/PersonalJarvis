@@ -33,6 +33,7 @@ from jarvis.speech.pipeline import (
     _TIMEOUT_TOOL_STALL_PHRASE,
     SpeechPipeline,
     TurnTakingState,
+    _privacy_ack,
     _smalltalk_fallback_for_non_substantive,
 )
 
@@ -202,9 +203,24 @@ def test_smalltalk_fallback_is_german_for_whisper_language_name() -> None:
     assert "geht's gut" in answer, answer  # the German variant, not "I'm good"
 
 
-def test_smalltalk_fallback_answers_spanish_in_spanish() -> None:
-    answer = _smalltalk_fallback_for_non_substantive("Oye, ¿cómo estás?", "spanish")
+@pytest.mark.parametrize("prompt", ["Oye, ¿cómo estás?", "como estás", "COMO ESTAS"])
+def test_smalltalk_fallback_answers_spanish_in_spanish(prompt: str) -> None:
+    answer = _smalltalk_fallback_for_non_substantive(prompt, "spanish")
     assert answer == "Todo bien. ¿Qué hacemos ahora?"
+
+
+@pytest.mark.parametrize(
+    ("lang", "pause", "resume"),
+    [
+        ("german", _PRIVACY_PAUSE_ACK["de"], _PRIVACY_RESUME_ACK["de"]),
+        ("en", _PRIVACY_PAUSE_ACK["en"], _PRIVACY_RESUME_ACK["en"]),
+        ("spanish", "Listo, ya no estoy mirando.", "Ya puedo ver otra vez."),
+    ],
+)
+def test_privacy_acks_follow_the_turn_language(lang: str, pause: str, resume: str) -> None:
+    # They used to be German for everyone and named the maintainer.
+    assert _privacy_ack("pause", lang) == pause
+    assert _privacy_ack("resume", lang) == resume
 
 
 @pytest.mark.asyncio

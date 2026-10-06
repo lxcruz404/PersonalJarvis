@@ -19,6 +19,11 @@ _NO_ACTIVE_PREFS_MARKER = "No active user preferences are currently set"
 # user ..." auto line — start with this marker.
 _REPLY_LANG_MARKER = "REPLY LANGUAGE"
 
+# The BrainManager opens the system prompt with the assistant's identity sentence
+# (jarvis/brain/identity.py ``name_directive``), one line that starts with this
+# marker whenever the user has named the assistant through the wake word.
+_IDENTITY_MARKER = "YOUR NAME IS "
+
 # Prepended to every structured CLI prompt. See render_structured_prompt for the
 # failure this prevents: an agent that reaches for a file it may not open in
 # headless mode returns a permissions notice instead of an answer.
@@ -43,6 +48,23 @@ def extract_standing_instructions_block(system_prompt: str | None) -> str:
     # Legacy prompts did not have an end marker. Keep the fallback bounded so a
     # stale process never drags the whole router/tool prompt into a CLI turn.
     return system_prompt[start : start + _LEGACY_MAX_CHARS].strip()
+
+
+def extract_identity_directive(system_prompt: str | None) -> str:
+    """Return the assistant's identity sentence from a system prompt.
+
+    The flattened CLI prompts drop the router system prompt, and with it the
+    identity block that names the assistant. Without this line a CLI model
+    introduced itself under a hardcoded default name instead of the name the
+    user gave it. Empty when the assistant has no name yet.
+    """
+    if not system_prompt:
+        return ""
+    start = system_prompt.find(_IDENTITY_MARKER)
+    if start == -1:
+        return ""
+    end = system_prompt.find("\n", start)
+    return system_prompt[start : end if end != -1 else None].strip()
 
 
 def extract_reply_language_directive(system_prompt: str | None) -> str:

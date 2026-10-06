@@ -1451,3 +1451,38 @@ native tools.
   echoing provider text, `token_expired` → one refresh + retry, `Retry-After`
   handling, cursor pagination, channel/DM resolution, per-action risk tiers.
 - `tests/unit/brain/test_routing.py` (exact router set includes `slack`).
+
+## Amendment 2026-10-06 — Owned-device tool `device-control`
+
+Personal Jarvis had no way to act on the person's own devices as devices: no
+Wake-on-LAN, and shutdown/restart only through `run-shell`, where the model
+had to compose a per-OS command and `systemctl poweroff` classified as a mere
+modification. `device-control` adds one tool over a user-declared device
+registry (`jarvis/devices/`, `<user data>/devices/devices.json`):
+
+- `list` — the registered devices and the capabilities the person granted.
+- `wake` — one Wake-on-LAN magic packet to a registered device that has the
+  `wake_on_lan` capability and a MAC address the person entered. The target
+  address must be a local-network address; nothing is sent toward the
+  internet, and the reply says "packet sent", never "the device is on".
+- `power` — `shutdown`, `restart`, `sleep`, `lock` or `cancel` on THIS
+  computer, each a fixed argv per OS (no shell, no interpolated text).
+  Shutdown and restart carry a grace delay on Windows and Linux so `cancel`
+  can still stop them. Power for another device is refused with an honest
+  error until the assistant runs on that device.
+
+| Tool | Added | Backing | Risk | Recursion guard? |
+|---|---|---|---|---|
+| `device-control` | 2026-10-06 | `jarvis.devices` registry, UDP magic packet, OS power commands | `monitor` statically; `list` and `power cancel` downgrade to `safe`, `power shutdown/restart/sleep` escalate to `ask` via `risk_tier_for_args` | n/a — a direct action, never a spawn; router-tier only (AP-5/AP-14) |
+
+The same change classifies `systemctl`/`loginctl` power subcommands as
+destructive in `jarvis/safety/command_impact.py`, so the `run-shell` path asks
+first for them as it already did for `shutdown`.
+
+### Regression guards
+
+- `tests/unit/devices/` — MAC/LAN validation, registry round-trip, magic
+  packet bytes and a real loopback send, per-OS power argv, tool tiers and
+  refusals.
+- `tests/unit/plugins/tool/test_command_impact.py` (power subcommands).
+- `tests/unit/brain/test_routing.py` (exact router set includes `device-control`).

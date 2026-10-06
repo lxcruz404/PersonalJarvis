@@ -222,6 +222,12 @@ ROUTER_TOOLS = frozenset({
     # directly. Reads are "safe"; post_message keeps "ask" (echo-confirm).
     # Never a spawn (AP-5/AP-14).
     "slack",
+    # Owned devices (2026-10-06): list the user's registered devices, wake one
+    # over the local network (Wake-on-LAN) and shut down / restart / sleep /
+    # lock THIS computer through the OS. Per-call tiers: list safe, wake and
+    # lock monitor, shutdown/restart/sleep ask. A direct gated action, never a
+    # spawn (AP-5/AP-14). See ADR-0011 amendment "device-control tool".
+    "device-control",
     # Computer-Use (Wave 1, 2026-05-29): first-class, clearly-described tool to
     # drive the user's LIVE desktop (open apps, click, type, scroll, operate
     # any GUI). The router previously had no honest desktop path — spawn-worker

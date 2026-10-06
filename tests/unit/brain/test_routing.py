@@ -1932,6 +1932,11 @@ def test_router_tools_is_pure_dispatcher_set() -> None:
             # Marketplace-listed or internal apps. Reads safe, posting ask.
             # Never a spawn (AP-5/AP-14).
             "slack",
+            # Owned devices (2026-10-06): list, Wake-on-LAN, and OS power
+            # actions for this computer. Per-call tiers (shutdown/restart/
+            # sleep ask). Never a spawn (AP-5/AP-14). ADR-0011 amendment
+            # "device-control tool".
+            "device-control",
             # Computer-Use (Wave 1, 2026-05-29): first-class tool to drive the
             # live desktop. Router-tier only — a direct safe-gated action (the
             # loop gates each action via ToolExecutor, ADR-0008), never a spawn,

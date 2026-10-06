@@ -1,0 +1,35 @@
+# Darío: a Spanish-speaking personal assistant profile.
+#
+# Activated by `[profile] name = "dario"` in jarvis.toml (or JARVIS_PROFILE=dario);
+# `python scripts/dario/setup_dario.py --apply` sets it. load_config() deep-merges
+# this file OVER jarvis.toml, so the keys below win over the same keys changed
+# in Settings while the profile is active. It holds only identity and language,
+# nothing provider- or credential-specific: the brain, speech and voice
+# providers stay the in-app choice.
+
+profile:
+  language: es
+
+trigger:
+  wake_word_enabled: true
+  wake_word:
+    # The assistant's name derives from this phrase. Matching folds accents,
+    # so a transcript of "Dario" without the accent wakes it too.
+    phrase: "Darío"
+    # Pin the wake-word acoustic model to Spanish.
+    language: es
+
+stt:
+  # Keeps the proper noun stable in transcripts.
+  bias_prompt: "Darío"
+
+brain:
+  # Every reply in Spanish, whatever language a turn was detected in.
+  reply_language: es
+
+ui:
+  language: es
+
+tts:
+  # Let the voice provider follow the reply language instead of the German default.
+  language_code: auto

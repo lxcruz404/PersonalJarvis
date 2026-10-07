@@ -153,6 +153,18 @@ def _parse_recognizer_json(raw: str, *, where: str) -> dict:
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
+
+def _grammar_json(alternatives: Sequence[str]) -> str:
+    """Serialize a Vosk grammar with every non-ASCII letter left as UTF-8.
+
+    libvosk's JSON parser copies a ``\\uXXXX`` escape as literal text instead
+    of decoding it. ``json.dumps``' default ASCII escaping therefore turned
+    "darío" into the word "dar\\u00edo", which no lexicon holds: Vosk dropped
+    it with a warning ``SetLogLevel(-1)`` hides, the grammar kept only
+    "[unk]", and an accented wake word could never fire.
+    """
+    return json.dumps(list(alternatives), ensure_ascii=False)
+
 # Minimum per-word grammar confidence for the verify RE-SCORE over the ring
 # window. This is the precision anchor (live forensic 2026-07-06, "Hey Ruben"
 # fired on plain room speech): genuine wakes re-score at ~1.0 (spike
@@ -813,7 +825,7 @@ class VoskKwsProvider:
         raw_tokens = [t for t in self._phrase.lower().split() if t]
         self._competition_grammar: str | None = None
         if has_prefix and raw_tokens:
-            self._competition_grammar = json.dumps(
+            self._competition_grammar = _grammar_json(
                 [self._phrase.lower(), f"{raw_tokens[0]} [unk]", "[unk]"]
             )
         # One-shot flag for the "competition degraded to its static grammar"
@@ -934,7 +946,7 @@ class VoskKwsProvider:
         return model
 
     def _new_grammar_rec(self, path: str | None = None) -> Any:
-        grammar = json.dumps([self._phrase.lower(), "[unk]"])
+        grammar = _grammar_json([self._phrase.lower(), "[unk]"])
         return build_recognizer(
             self._ensure_model(path), self._sample_rate, grammar
         )
@@ -1824,7 +1836,7 @@ class VoskKwsProvider:
             # grammar still runs — a weaker but valid competition.
             set_grammar = getattr(rec, "SetGrammar", None)
             if callable(set_grammar):
-                set_grammar(json.dumps(alternatives))
+                set_grammar(_grammar_json(alternatives))
             elif not getattr(self, "_warned_static_competition", False):
                 # Say so ONCE, at WARNING. The static grammar is a measurably
                 # weaker judge (bench 2026-08-22: 13 false fires on 40
@@ -2220,7 +2232,7 @@ def vosk_model_supports_phrase(model_path: str, phrase: str) -> bool:
             KaldiRecognizer,
             Model(model_path),
             16_000,
-            json.dumps([phrase.lower(), "[unk]"]),
+            _grammar_json([phrase.lower(), "[unk]"]),
         )
     except Exception:  # noqa: BLE001 — probe failure must not reject a real word
         return True

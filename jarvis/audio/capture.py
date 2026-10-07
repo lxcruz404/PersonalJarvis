@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import threading
 import time
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any
@@ -1136,9 +1137,23 @@ class MicrophoneCapture:
                             raise
                         return opened
 
-                stream = await asyncio.to_thread(
-                    _guarded_open, attempt, capture_rate, capture_blocksize
+                open_task = asyncio.ensure_future(
+                    asyncio.to_thread(
+                        _guarded_open, attempt, capture_rate, capture_blocksize
+                    )
                 )
+                try:
+                    stream = await asyncio.shield(open_task)
+                except asyncio.CancelledError:
+                    # The worker thread cannot be cancelled: it still hands
+                    # back a STARTED native stream. Dropping that object frees
+                    # the callback PortAudio keeps calling (sounddevice has no
+                    # finalizer that stops it), an access violation on the
+                    # audio thread that ends the process with no traceback.
+                    # Live on Windows/MME: a barge-in capture cancelled
+                    # mid-open because a silent reply finished at once.
+                    open_task.add_done_callback(self._discard_orphaned_open)
+                    raise
                 self._stream = stream
                 _remember_input_latency(stream)
                 self._device = attempt
@@ -1466,6 +1481,25 @@ class MicrophoneCapture:
             "continuing without it; the event loop stays responsive.",
             cls._DISCARD_GRACE_S,
         )
+
+    @classmethod
+    def _discard_orphaned_open(cls, open_task: asyncio.Future[Any]) -> None:
+        """Close a stream whose open finished after its capture was cancelled.
+
+        Runs as the open task's done-callback. The discard thread holds the
+        stream until it is closed, so the native callback outlives the stream.
+        """
+        if open_task.cancelled() or open_task.exception() is not None:
+            # Nothing was opened; reading the exception marks it retrieved.
+            return
+        stream = open_task.result()
+        _log.info("Mic open finished after its capture was cancelled; closing it.")
+        threading.Thread(
+            target=cls._discard_stream,
+            args=(stream,),
+            name="mic-orphan-discard",
+            daemon=True,
+        ).start()
 
     @staticmethod
     def _discard_stream(stream: Any) -> None:

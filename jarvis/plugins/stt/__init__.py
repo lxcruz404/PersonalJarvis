@@ -314,6 +314,22 @@ def resolve_effective_stt_provider(provider_name: str) -> str:
     return _resolve_effective_stt(provider_name)[0]
 
 
+def utterances_use_local_whisper(provider_name: str) -> bool:
+    """Whether post-wake speech will be transcribed by the local ``stt.model``.
+
+    True for the selected on-device engine, and for a cloud provider when no
+    cloud family holds a usable credential: ``build_stt_from_config`` then
+    falls back to ``FasterWhisperProvider(model=stt.model)``. Setup asks this
+    to fetch that model before the first utterance, which otherwise downloads
+    it inside the transcription timeout. Silent and offline; reads only local
+    credentials.
+    """
+    effective = resolve_effective_stt_provider(provider_name)
+    if not effective:
+        return False
+    return effective == "faster-whisper" or not _stt_family_has_key(effective)
+
+
 #: Class attribute a recognizer plugin sets to declare that it transcribes on
 #: THIS machine. The capability the plugin answers for ITSELF (AP-21) — and the
 #: seam a second on-device engine plugs into, because the dictation polish
@@ -1452,6 +1468,7 @@ __all__ = [
     "resolve_stt_model",
     "start_wake_model_prefetch",
     "stt_family_id",
+    "utterances_use_local_whisper",
     "wake_gpu_probe_cached",
     "wake_whisper_is_consumed",
 ]

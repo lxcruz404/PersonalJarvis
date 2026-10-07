@@ -124,10 +124,12 @@ def _whisper_models_needed(cfg: Any) -> list[str]:
     """The faster-whisper model names the CURRENT config would load at runtime.
 
     Mirrors ``prefetch._whisper_models_needed``: the wake-match model always,
-    plus the utterance model only when the local provider is selected.
+    plus the utterance model whenever utterances run locally.
     """
+    from jarvis.plugins.stt import utterances_use_local_whisper
+
     models = [cfg.stt.wake_model]
-    if cfg.stt.provider == "faster-whisper" and cfg.stt.model not in models:
+    if utterances_use_local_whisper(cfg.stt.provider) and cfg.stt.model not in models:
         models.append(cfg.stt.model)
     return models
 

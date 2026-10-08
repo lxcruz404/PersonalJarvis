@@ -119,3 +119,21 @@ def test_extracts_the_identity_sentence_only() -> None:
 def test_identity_is_empty_without_a_name() -> None:
     assert extract_identity_directive("You are the user's personal assistant.") == ""
     assert extract_identity_directive(None) == ""
+
+
+def test_the_character_block_is_cut_from_the_router_prompt() -> None:
+    from jarvis.plugins.brain.cli_prompt_context import extract_character_block
+
+    system = (
+        "YOUR NAME IS DARÍO. You are Darío.\n\n"
+        "## Your character (SOUL.md)\n"
+        "### Who you are\n"
+        "- A Colombian guy in his thirties.\n\n"
+        "PERSONA HANDBOOK THAT FOLLOWS"
+    )
+    block = extract_character_block(system)
+    assert block.startswith("## Your character (SOUL.md)")
+    assert "A Colombian guy in his thirties." in block
+    assert "PERSONA HANDBOOK" not in block
+    assert extract_character_block("no character here") == ""
+    assert extract_character_block(None) == ""

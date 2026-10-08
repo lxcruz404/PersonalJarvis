@@ -177,13 +177,57 @@ def test_none_maps_to_the_lowest_cli_effort() -> None:
     assert argv[argv.index("--effort") + 1] == "low"
 
 
-def test_conversational_turns_keep_their_shape() -> None:
-    """The lean set belongs to structured briefs; the voice path deliberately
-    keeps its read-only lookups and is not this change's to alter."""
+def test_conversational_turns_shed_startup_weight_the_cli_supports() -> None:
+    """A spoken turn waits through the CLI's start-up before the first word.
+    Its prompt forbids every tool, so it sheds the same weight as a brief:
+    built-in tools, MCP servers, skills and a saved session per turn."""
     brain = ClaudeCliBrain(structured_prompts=False)
     argv, _prompt = brain.build_invocation(_req(), cli_flags=_FAST_FLAGS)
-    assert "--tools" not in argv
-    assert "--strict-mcp-config" not in argv
+    assert argv[argv.index("--tools") + 1] == ""
+    for flag in ("--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"):
+        assert flag in argv
+    assert "--effort" not in argv
+    for flags in (frozenset(), None):
+        bare, _prompt = brain.build_invocation(_req(), cli_flags=flags)
+        for flag in _FAST_FLAGS:
+            assert flag not in bare
+
+
+_ROUTER_SYSTEM = (
+    "YOUR NAME IS DARÍO. You are Darío, the user's personal assistant.\n\n"
+    "## Your character (SOUL.md)\n"
+    "Your own character file. It describes YOU, the assistant, never the user.\n"
+    "### Your tone\n"
+    "- Colombian flavour, in moderation.\n\n"
+    "ROUTER TOOL LIST THAT MUST NOT LEAK\n\n"
+    "REPLY LANGUAGE — MANDATORY: Spanish."
+)
+
+
+def test_a_spoken_turn_answers_in_the_assistants_own_character() -> None:
+    """The name alone left the CLI answering in its generic voice: the
+    character from SOUL.md has to reach the model too, as its system prompt
+    when the CLI accepts one, so it replaces the CLI's coding-agent prompt."""
+    brain = ClaudeCliBrain(structured_prompts=False)
+    argv, prompt = brain.build_invocation(
+        _req(system=_ROUTER_SYSTEM, user="¿Quién eres?"),
+        cli_flags=_FAST_FLAGS | {"--system-prompt"},
+    )
+    system = argv[argv.index("--system-prompt") + 1]
+    assert system.startswith("YOUR NAME IS DARÍO.")
+    assert "Colombian flavour, in moderation." in system
+    assert "no signature" in system
+    assert "ROUTER TOOL LIST" not in system + prompt
+    assert "¿Quién eres?" in prompt
+    assert prompt.rstrip().endswith("Assistant:")
+    assert "REPLY LANGUAGE — MANDATORY: Spanish." in prompt
+
+    older, older_prompt = brain.build_invocation(
+        _req(system=_ROUTER_SYSTEM, user="¿Quién eres?"), cli_flags=frozenset()
+    )
+    assert "--system-prompt" not in older
+    assert older_prompt.startswith("YOUR NAME IS DARÍO.")
+    assert "Colombian flavour, in moderation." in older_prompt
 
 
 def test_the_flag_probe_reads_the_clis_own_help(

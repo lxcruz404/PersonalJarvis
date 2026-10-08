@@ -24,6 +24,13 @@ _REPLY_LANG_MARKER = "REPLY LANGUAGE"
 # marker whenever the user has named the assistant through the wake word.
 _IDENTITY_MARKER = "YOUR NAME IS "
 
+# The assistant's character (SOUL.md, ``jarvis.memory.soul.Soul.render_for_prompt``)
+# follows the identity sentence as one block that starts with this heading. Its
+# lines are joined by single newlines; the next prompt layer starts after a
+# blank line.
+_CHARACTER_MARKER = "## Your character (SOUL.md)"
+_CHARACTER_MAX_CHARS = 6000
+
 # Prepended to every structured CLI prompt. See render_structured_prompt for the
 # failure this prevents: an agent that reaches for a file it may not open in
 # headless mode returns a permissions notice instead of an answer.
@@ -65,6 +72,24 @@ def extract_identity_directive(system_prompt: str | None) -> str:
         return ""
     end = system_prompt.find("\n", start)
     return system_prompt[start : end if end != -1 else None].strip()
+
+
+def extract_character_block(system_prompt: str | None) -> str:
+    """Return the assistant's character block (SOUL.md) from a system prompt.
+
+    The identity sentence carries only the name. Who the assistant is, how it
+    talks and where its limits are live in this block, and a flattened CLI
+    prompt without it answers in the CLI's own generic voice. Empty when the
+    prompt has no character block.
+    """
+    if not system_prompt:
+        return ""
+    start = system_prompt.find(_CHARACTER_MARKER)
+    if start == -1:
+        return ""
+    end = system_prompt.find("\n\n", start)
+    block = system_prompt[start : end if end != -1 else None]
+    return block[:_CHARACTER_MAX_CHARS].strip()
 
 
 def extract_reply_language_directive(system_prompt: str | None) -> str:

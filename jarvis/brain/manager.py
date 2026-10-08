@@ -10727,6 +10727,13 @@ class BrainManager:
         else:
             if fast:
                 chain.append((active, fast))
+        if not any(name == active for name, _model in chain):
+            # No configured model and no tier default: a subscription CLI brain
+            # (claude-cli) answers on its account's own default model. Without
+            # this entry the brain the person chose never reaches the chain,
+            # and an install whose only credential is that login hears the
+            # missing-key apology on every turn.
+            chain.append((active, deep))
 
         # 2. Explicit tier fallbacks from jarvis.toml. These must run before
         # generic cross-provider probing so runtime matches healthcheck order.

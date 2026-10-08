@@ -168,13 +168,27 @@ def _grammar_json(alternatives: Sequence[str]) -> str:
 
 
 def _canonical_phrase(phrase: str) -> str:
-    """The wake phrase as the lexicon spells it: NFC, single ASCII spaces.
+    """The wake phrase as the lexicon spells it: composed, plain words.
 
-    Grammar words reach libvosk as raw UTF-8 bytes, so a decomposed "darío"
-    (``i`` plus a combining accent, as a macOS paste or some input methods
-    produce) or a no-break space between words matches no lexicon entry.
+    Grammar words reach libvosk as raw UTF-8 bytes and are split on ASCII
+    spaces only, so a decomposed "darío" (``i`` plus a combining accent, as a
+    macOS paste or some input methods produce), a no-break space between the
+    words, or punctuation typed with the phrase ("Oye, Darío") matches no
+    lexicon entry. Punctuation inside a word ("don't") is kept.
     """
-    return " ".join(unicodedata.normalize("NFC", phrase).split())
+    text = unicodedata.normalize("NFKC", phrase)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    words = (_strip_edge_punctuation(word) for word in text.split())
+    return " ".join(word for word in words if word)
+
+
+def _strip_edge_punctuation(word: str) -> str:
+    start, end = 0, len(word)
+    while start < end and unicodedata.category(word[start]).startswith("P"):
+        start += 1
+    while end > start and unicodedata.category(word[end - 1]).startswith("P"):
+        end -= 1
+    return word[start:end]
 
 # Minimum per-word grammar confidence for the verify RE-SCORE over the ring
 # window. This is the precision anchor (live forensic 2026-07-06, "Hey Ruben"

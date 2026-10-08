@@ -58,7 +58,14 @@ def test_the_grammar_recognizer_hears_the_accented_phrase(
 
 @pytest.mark.parametrize(
     ("phrase", "expected"),
-    ((_DECOMPOSED, "darío"), (_NO_BREAK, "oye darío"), ("  Darío  ", "darío")),
+    (
+        (_DECOMPOSED, "darío"),
+        (_NO_BREAK, "oye darío"),
+        ("  Darío  ", "darío"),
+        ("¡Oye, Darío!", "oye darío"),
+        ("Hey Jarvis.", "hey jarvis"),
+        ("Don't stop", "don't stop"),
+    ),
 )
 def test_the_grammar_spells_the_phrase_as_the_lexicon_does(
     monkeypatch: pytest.MonkeyPatch, phrase: str, expected: str
@@ -115,7 +122,7 @@ def _fake_vosk(lexicon: set[str]) -> SimpleNamespace:
     )
 
 
-@pytest.mark.parametrize("phrase", ("Darío", _DECOMPOSED))
+@pytest.mark.parametrize("phrase", ("Darío", _DECOMPOSED, "Darío."))
 def test_the_vocabulary_probe_finds_an_accented_word(
     monkeypatch: pytest.MonkeyPatch, phrase: str
 ) -> None:

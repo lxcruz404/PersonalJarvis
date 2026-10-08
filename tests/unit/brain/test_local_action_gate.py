@@ -1237,3 +1237,40 @@ def test_orders_still_reach_computer_use(utterance: str) -> None:
 def test_information_question_classifier(utterance: str, is_question: bool) -> None:
     """The TASK-or-QUESTION decision itself, on already-normalised input."""
     assert _is_information_question(utterance) is is_question
+
+
+# ---------------------------------------------------------------------------
+# Spanish open-app requests. A brain without tool calls (the Claude
+# subscription CLI) answers an open request in words only, so this
+# deterministic path is the only way such a turn opens anything.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("utterance", "app"),
+    [
+        ("Darío, abre la calculadora", "calc"),
+        ("Ábreme Spotify, por favor", "spotify"),
+        ("¿Puedes abrir Discord?", "discord"),
+        ("abre el explorador", "explorer"),
+        ("abrí el bloc de notas", "notepad"),
+    ],
+)
+def test_a_spanish_open_request_launches_the_app(utterance: str, app: str) -> None:
+    plan = match_local_action(utterance, _registry=None)
+    assert plan is not None
+    assert plan.mode == LocalActionMode.DIRECT
+    assert plan.tool_calls == (LocalToolCall(name="open_app", args={"app_name": app}),)
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "No abre Spotify todavía",
+        "¿Cómo puedo abrir la calculadora?",
+        "En abril escuché mucho Spotify",
+        "Me encanta Spotify",
+    ],
+)
+def test_a_spanish_sentence_that_is_not_an_open_launches_nothing(utterance: str) -> None:
+    assert match_local_action(utterance, _registry=None) is None

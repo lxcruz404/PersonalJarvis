@@ -372,8 +372,13 @@ def _looks_like_desktop_control(text: str) -> bool:
 # computer-use loop — clicking through the browser instead of calling the
 # provider-test endpoint). openrouter/openai/openwakeword must never count
 # as "open".
+# Spanish forms are pinned the same way: imperative "abre"/"abra" with an
+# enclitic ("ábreme", "ábrelo"), the infinitive "abrir" ("¿puedes abrirme…?")
+# and the voseo "abrí", so "abril" (April) never counts as an open.
 _OPEN_VERB_RE = re.compile(
-    r"\b(?:oeffn\w*|aufmach\w*|aufzumach\w*|start\w*|open(?:s|ed|ing)?|launch\w*)\b",
+    r"\b(?:oeffn\w*|aufmach\w*|aufzumach\w*|start\w*|open(?:s|ed|ing)?|launch\w*"
+    r"|[a\u00e1]br[ea](?:me|lo|la|le|nos)?|abrir(?:me|lo|la|le|nos)?"
+    r"|abr[i\u00ed](?:me|lo|la)?)\b",
     re.IGNORECASE,
 )
 # Separable verb "mach … auf" (particle trails the object): "mach mir Spotify auf".
@@ -394,7 +399,10 @@ _AND_RE = re.compile(r"\b(?:und|and)\b", re.IGNORECASE)
 # folded into ``is_open_app_intent`` — that predicate is also the force-spawn
 # guard, and a negated open must still count as an open there (to stay OFF the
 # sub-agent worker path), just not trigger an actual launch here.
-_OPEN_NEGATION_RE = re.compile(r"\bnicht\b|\bkein\w*\b|\bniemals\b", re.IGNORECASE)
+_OPEN_NEGATION_RE = re.compile(
+    r"\bnicht\b|\bkein\w*\b|\bniemals\b|\bno\b|\bnunca\b|\bning[u\u00fa]n\w*",
+    re.IGNORECASE,
+)
 # Signals that the request is NOT a plain desktop app-open but heavy worker /
 # external-system work, which a sandboxed worker (not computer-use) owns. This
 # is the single veto consulted by is_open_app_intent (and therefore by both the
@@ -417,7 +425,9 @@ _NOT_OPEN_APP_RE = re.compile(
 )
 # Instructional questions ("wie oeffne ich X?") must never launch anything.
 _OPEN_INSTRUCTIONAL_RE = re.compile(
-    r"^\s*(?:wie|how|was|what|warum|why|wieso|weshalb)\b", re.IGNORECASE
+    r"^\W*(?:wie|how|was|what|warum|why|wieso|weshalb"
+    r"|c[o\u00f3]mo|qu[e\u00e9]|por\s*qu[e\u00e9]|para\s*qu[e\u00e9])\b",
+    re.IGNORECASE,
 )
 
 # ---------------------------------------------------------------------------
@@ -617,6 +627,9 @@ _APP_ALIASES = {
     "taschenrechner": "calc",
     "calc": "calc",
     "calculator": "calc",
+    "calculadora": "calc",
+    "explorador": "explorer",
+    "bloc": "notepad",
     "windows terminal": "wt",
     "terminal": "wt",
     "wt": "wt",
@@ -1068,6 +1081,9 @@ def _match_scripted_local_plan(text: str) -> LocalActionPlan | None:
     return None
 
 
+_TOKEN_PUNCTUATION = ".,;:!?\u00bf\u00a1\"'()"
+
+
 def _extract_known_app(text: str) -> str | None:
     """Return the canonical app for the FIRST known app name in a normalised
     open-app utterance, else ``None``.
@@ -1080,7 +1096,8 @@ def _extract_known_app(text: str) -> str | None:
     MUST first confirm :func:`is_open_app_intent` so a bare app mention in a
     non-open sentence ("ich höre Spotify gern") never launches anything.
     """
-    tokens = [t for t in text.split() if t]
+    # Punctuation glued to a word ("Spotify," / "Discord?") must not hide it.
+    tokens = [t for t in (raw.strip(_TOKEN_PUNCTUATION) for raw in text.split()) if t]
     for window in (2, 1):
         for i in range(len(tokens) - window + 1):
             phrase = " ".join(tokens[i:i + window])

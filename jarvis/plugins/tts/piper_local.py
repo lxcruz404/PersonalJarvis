@@ -246,13 +246,17 @@ class PiperLocalTTS:
                     continue
             return False
 
+        # sherpa-onnx keeps generating while the callback returns non-zero
+        # and stops at 0. Returning 0 for "go on" cut every reply to its first
+        # chunk, about one second of speech (measured on a Windows desktop,
+        # sherpa-onnx 1.13.8, 2026-10-08).
         def _callback(samples: Any, _progress: float) -> int:
             data = _pcm(samples)
             if data:
                 emitted.set()
                 if not _put(data):
-                    return 1
-            return 1 if stopped.is_set() else 0
+                    return 0
+            return 0 if stopped.is_set() else 1
 
         nonlocal_rate = [sample_rate]
 

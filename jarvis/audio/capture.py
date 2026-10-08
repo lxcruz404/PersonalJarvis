@@ -718,6 +718,27 @@ def _resolve_input_device(
     return None
 
 
+class _OpenHandoff:
+    """Who closes a native stream whose open may outlive its capture.
+
+    The open runs on a worker thread that cannot be cancelled, and the asyncio
+    side of it can be cancelled at any moment, including by a loop teardown
+    that cancels the open's own task and drops its result. Each side takes
+    ``lock`` once: the worker either parks the started stream in ``stream`` or,
+    when the capture was already ``abandoned``, closes it while it still holds
+    the open guard. The canceller sets ``abandoned`` and takes any parked
+    stream. Whichever side comes second closes it, so no started stream is
+    ever dropped while PortAudio still calls its callback.
+    """
+
+    __slots__ = ("abandoned", "lock", "stream")
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.abandoned = False
+        self.stream: Any = None
+
+
 class _ResizableQueue(asyncio.Queue[AudioChunk]):
     """The capture bridge queue, whose bound may change while it is in use.
 
@@ -1113,8 +1134,13 @@ class MicrophoneCapture:
                 # between _terminate and _initialize is a native fault. The
                 # open runs OFF the event loop so a refresh holding the
                 # guard stalls only this open, never the whole loop.
+                handoff = _OpenHandoff()
+
                 def _guarded_open(
-                    device: int | str | None, rate: int, blocksize: int
+                    handoff: _OpenHandoff,
+                    device: int | str | None,
+                    rate: int,
+                    blocksize: int,
                 ) -> Any:
                     with topology.stream_open_guard():
                         opened = sd.InputStream(
@@ -1135,24 +1161,39 @@ class MicrophoneCapture:
                             except Exception:  # noqa: BLE001, S110 - preserve the original open failure
                                 pass
                             raise
-                        return opened
+                        with handoff.lock:
+                            if not handoff.abandoned:
+                                handoff.stream = opened
+                                return opened
+                        # The capture was cancelled while this open ran.
+                        # Closing here, still inside the guard, also keeps a
+                        # hot-swap re-init from terminating PortAudio while
+                        # this unregistered stream is alive.
+                        _log.info(
+                            "Mic open finished after its capture was cancelled; "
+                            "closing it."
+                        )
+                        self._discard_stream(opened)
+                        return None
 
-                open_task = asyncio.ensure_future(
-                    asyncio.to_thread(
-                        _guarded_open, attempt, capture_rate, capture_blocksize
-                    )
-                )
                 try:
-                    stream = await asyncio.shield(open_task)
+                    stream = await asyncio.to_thread(
+                        _guarded_open, handoff, attempt, capture_rate, capture_blocksize
+                    )
                 except asyncio.CancelledError:
                     # The worker thread cannot be cancelled: it still hands
-                    # back a STARTED native stream. Dropping that object frees
-                    # the callback PortAudio keeps calling (sounddevice has no
-                    # finalizer that stops it), an access violation on the
-                    # audio thread that ends the process with no traceback.
-                    # Live on Windows/MME: a barge-in capture cancelled
-                    # mid-open because a silent reply finished at once.
-                    open_task.add_done_callback(self._discard_orphaned_open)
+                    # back a STARTED native stream, and a cancelled await (or
+                    # a loop teardown that cancels every task) drops it.
+                    # Dropping it frees the callback PortAudio keeps calling
+                    # (sounddevice has no finalizer that stops it), an access
+                    # violation on the audio thread that ends the process with
+                    # no traceback. Live on Windows/MME: a barge-in capture
+                    # cancelled mid-open because a silent reply ended at once.
+                    with handoff.lock:
+                        handoff.abandoned = True
+                        orphan, handoff.stream = handoff.stream, None
+                    if orphan is not None:
+                        self._discard_orphan(orphan)
                     raise
                 self._stream = stream
                 _remember_input_latency(stream)
@@ -1483,16 +1524,13 @@ class MicrophoneCapture:
         )
 
     @classmethod
-    def _discard_orphaned_open(cls, open_task: asyncio.Future[Any]) -> None:
-        """Close a stream whose open finished after its capture was cancelled.
+    def _discard_orphan(cls, stream: Any) -> None:
+        """Close a started stream whose capture was cancelled before owning it.
 
-        Runs as the open task's done-callback. The discard thread holds the
-        stream until it is closed, so the native callback outlives the stream.
+        A plain thread rather than the loop's executor: the loop may be the one
+        tearing down. The thread holds the stream until it is closed, so the
+        native callback never outlives the stream object.
         """
-        if open_task.cancelled() or open_task.exception() is not None:
-            # Nothing was opened; reading the exception marks it retrieved.
-            return
-        stream = open_task.result()
         _log.info("Mic open finished after its capture was cancelled; closing it.")
         threading.Thread(
             target=cls._discard_stream,

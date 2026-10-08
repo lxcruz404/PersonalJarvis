@@ -5,13 +5,12 @@ a real config, the network, or the model cache. Mirrors the hermetic style of
 test_prefetch.py.
 """
 
-import jarvis.plugins.stt as stt_plugins
 from jarvis.setup import model_report as mr
 
 
 class _Stt:
     wake_model = "base"
-    provider = "groq-api"  # cloud: the utterance model counts only without a key
+    provider = "groq-api"  # cloud provider -> only the wake model is "needed"
     model = "large-v3-turbo"
 
 
@@ -173,22 +172,6 @@ def test_installed_whisper_reports_cache_hit_per_model(monkeypatch) -> None:
 
     whisper = next(i for i in items if "local speech model 'base'" in i.label)
     assert whisper.present is True
-
-
-def test_keyless_cloud_stt_reports_the_local_utterance_model(monkeypatch) -> None:
-    """No STT key: the report lists the model the local fallback will load."""
-    _patch_bundled(monkeypatch)
-    monkeypatch.setattr(mr, "_vosk_present", lambda *_a, **_kw: True)
-    monkeypatch.setattr(mr, "_faster_whisper_available", lambda: True)
-    monkeypatch.setattr(stt_plugins, "_stt_family_has_key", lambda _name: False)
-    monkeypatch.setattr(mr, "_whisper_cached", lambda name: name == "base")
-
-    items = mr.voice_model_report(_Cfg())
-
-    labels = [i.label for i in items]
-    assert "local speech model 'base'" in labels
-    turbo = next(i for i in items if i.label == "local speech model 'large-v3-turbo'")
-    assert turbo.present is False
 
 
 def test_format_report_marks_present_missing_and_optional(monkeypatch) -> None:

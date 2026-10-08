@@ -68,15 +68,12 @@ def _whisper_models_needed() -> list[str]:
     """The faster-whisper model names the CURRENT config would load at runtime.
 
     Mirrors ``jarvis/plugins/stt``: the wake-match model always
-    (``stt.wake_model``, default ``base``); the utterance model whenever
-    utterances run locally, which includes a cloud provider nobody holds a
-    key for. Order = download order (small first).
+    (``stt.wake_model``, default ``base``); the utterance model only when the
+    local provider is selected. Order = download order (small first).
     """
-    from jarvis.plugins.stt import utterances_use_local_whisper
-
     cfg = _load_config()
     models = [cfg.stt.wake_model]
-    if utterances_use_local_whisper(cfg.stt.provider) and cfg.stt.model not in models:
+    if cfg.stt.provider == "faster-whisper" and cfg.stt.model not in models:
         models.append(cfg.stt.model)
     return models
 

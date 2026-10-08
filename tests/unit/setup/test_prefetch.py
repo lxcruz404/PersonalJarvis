@@ -1,6 +1,4 @@
 """prefetch_all: resolves the same models the runtime uses; degrades cleanly."""
-
-import jarvis.plugins.stt as stt_plugins
 from jarvis.setup import prefetch
 
 
@@ -78,31 +76,14 @@ def test_whisper_models_needed_includes_utterance_model_for_local_provider(
     assert prefetch._whisper_models_needed() == ["base", "large-v3-turbo"]
 
 
-class _CloudStt:
-    wake_model = "base"
-    provider = "groq-api"
-    model = "large-v3-turbo"
+def test_whisper_models_needed_wake_only_for_cloud_provider(monkeypatch) -> None:
+    class _Stt:
+        wake_model = "base"
+        provider = "groq-api"
+        model = "large-v3-turbo"
 
+    class _Cfg:
+        stt = _Stt()
 
-class _CloudCfg:
-    stt = _CloudStt()
-
-
-def test_whisper_models_needed_wake_only_for_keyed_cloud_provider(monkeypatch) -> None:
-    monkeypatch.setattr(prefetch, "_load_config", lambda: _CloudCfg())
-    monkeypatch.setattr(stt_plugins, "_stt_family_has_key", lambda _name: True)
+    monkeypatch.setattr(prefetch, "_load_config", lambda: _Cfg())
     assert prefetch._whisper_models_needed() == ["base"]
-
-
-def test_whisper_models_needed_includes_utterance_model_for_keyless_cloud_provider(
-    monkeypatch,
-) -> None:
-    """No STT key anywhere: utterances fall back to the local ``stt.model``.
-
-    Live on Windows with no keys: only 'base' was fetched, so the first
-    utterance started downloading large-v3-turbo inside the transcription
-    timeout and every attempt failed.
-    """
-    monkeypatch.setattr(prefetch, "_load_config", lambda: _CloudCfg())
-    monkeypatch.setattr(stt_plugins, "_stt_family_has_key", lambda _name: False)
-    assert prefetch._whisper_models_needed() == ["base", "large-v3-turbo"]

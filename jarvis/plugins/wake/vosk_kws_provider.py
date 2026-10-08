@@ -100,6 +100,7 @@ import json
 import logging
 import threading
 import time
+import unicodedata
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -164,6 +165,16 @@ def _grammar_json(alternatives: Sequence[str]) -> str:
     "[unk]", and an accented wake word could never fire.
     """
     return json.dumps(list(alternatives), ensure_ascii=False)
+
+
+def _canonical_phrase(phrase: str) -> str:
+    """The wake phrase as the lexicon spells it: NFC, single ASCII spaces.
+
+    Grammar words reach libvosk as raw UTF-8 bytes, so a decomposed "darío"
+    (``i`` plus a combining accent, as a macOS paste or some input methods
+    produce) or a no-break space between words matches no lexicon entry.
+    """
+    return " ".join(unicodedata.normalize("NFC", phrase).split())
 
 # Minimum per-word grammar confidence for the verify RE-SCORE over the ring
 # window. This is the precision anchor (live forensic 2026-07-06, "Hey Ruben"
@@ -802,7 +813,7 @@ class VoskKwsProvider:
         # transcript text; never exposes an unverified hit. None = no visual.
         early_candidate_listener: Callable[[bool], Awaitable[None]] | None = None,
     ) -> None:
-        self._phrase = phrase.strip()
+        self._phrase = _canonical_phrase(phrase)
         self._keyword = keyword or "_".join(normalize_phrase_for_match(phrase)) or "wake"
         self._model_path = model_path
         paths = [p for p in (model_paths or ()) if p]
@@ -2210,6 +2221,7 @@ def vosk_model_supports_phrase(model_path: str, phrase: str) -> bool:
     is DELIBERATELY off the boot path (it loads the model, ~1.5 s) — call it
     from a user action (self-test) or a background task, never in ``_run_backend``.
     """
+    phrase = _canonical_phrase(phrase)
     core = phrase_core_for_match(phrase)
     if not core:
         return False

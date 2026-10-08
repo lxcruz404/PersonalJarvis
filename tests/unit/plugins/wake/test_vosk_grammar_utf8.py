@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import unicodedata
 from types import SimpleNamespace
 
 import pytest
@@ -24,6 +25,10 @@ from jarvis.plugins.wake.vosk_kws_provider import (
 )
 
 _PHRASES = ("Darío", "Oye Darío", "Hola Begoña")
+#: The same phrases as a macOS paste or some input methods deliver them:
+#: decomposed accents, and a no-break space between the words.
+_DECOMPOSED = unicodedata.normalize("NFD", "Darío")
+_NO_BREAK = "Oye\u00a0Darío"
 
 
 def _libvosk_words(grammar: str) -> list[str]:
@@ -51,14 +56,38 @@ def test_the_grammar_recognizer_hears_the_accented_phrase(
     assert _libvosk_words(grammars[0]) == [phrase.lower(), "[unk]"]
 
 
-@pytest.mark.parametrize("phrase", ("Oye Darío", "Hey Begoña"))
+@pytest.mark.parametrize(
+    ("phrase", "expected"),
+    ((_DECOMPOSED, "darío"), (_NO_BREAK, "oye darío"), ("  Darío  ", "darío")),
+)
+def test_the_grammar_spells_the_phrase_as_the_lexicon_does(
+    monkeypatch: pytest.MonkeyPatch, phrase: str, expected: str
+) -> None:
+    grammars: list[str | None] = []
+
+    def _build(_model: object, _rate: int, grammar: str | None = None) -> object:
+        grammars.append(grammar)
+        return object()
+
+    monkeypatch.setattr(vosk_kws_provider, "build_recognizer", _build)
+    provider = VoskKwsProvider(phrase, model_path="fake")
+    monkeypatch.setattr(provider, "_ensure_model", lambda _path=None: object())
+
+    provider._new_grammar_rec()
+
+    assert grammars[0] is not None
+    assert _libvosk_words(grammars[0]) == [expected, "[unk]"]
+
+
+@pytest.mark.parametrize("phrase", ("Oye Darío", "Hey Begoña", _NO_BREAK))
 def test_the_competition_grammar_keeps_the_accented_phrase(phrase: str) -> None:
     provider = VoskKwsProvider(phrase, model_path="fake")
 
     assert provider._competition_grammar is not None
     words = _libvosk_words(provider._competition_grammar)
-    assert words[0] == phrase.lower()
-    assert words[1] == f"{phrase.lower().split()[0]} [unk]"
+    spoken = " ".join(phrase.lower().split())
+    assert words[0] == spoken
+    assert words[1] == f"{spoken.split()[0]} [unk]"
 
 
 class _Lexicon:
@@ -86,12 +115,13 @@ def _fake_vosk(lexicon: set[str]) -> SimpleNamespace:
     )
 
 
+@pytest.mark.parametrize("phrase", ("Darío", _DECOMPOSED))
 def test_the_vocabulary_probe_finds_an_accented_word(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, phrase: str
 ) -> None:
     monkeypatch.setitem(sys.modules, "vosk", _fake_vosk({"darío"}))
 
-    assert vosk_model_supports_phrase("fake", "Darío") is True
+    assert vosk_model_supports_phrase("fake", phrase) is True
 
 
 def test_the_vocabulary_probe_still_reports_a_missing_word(

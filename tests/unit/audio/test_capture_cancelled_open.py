@@ -52,6 +52,7 @@ class _SlowStream:
         self.aborted = False
         self.closed = threading.Event()
         self.closed_under_guard = False
+        self.closed_by = ""
         _SlowStream.instances.append(self)
         _SlowStream.created.set()
 
@@ -65,6 +66,7 @@ class _SlowStream:
 
     def close(self) -> None:
         self.closed_under_guard = _open_guard_held()
+        self.closed_by = threading.current_thread().name
         self.closed.set()
 
 
@@ -104,13 +106,26 @@ async def test_cancel_during_open_closes_the_started_stream(
     # Closed before the guard was released: a hot-swap re-init waiting on the
     # guard can never terminate PortAudio while this stream is alive.
     assert stream.closed_under_guard
+    assert stream.closed_by != "mic-orphan-discard"
     assert mic._stream is None
 
 
 @pytest.mark.asyncio
-async def test_cancel_as_the_open_finishes_still_closes_the_stream(
-    slow_stream: type[_SlowStream],
+async def test_cancel_after_the_open_finished_still_closes_the_stream(
+    slow_stream: type[_SlowStream], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The worker already handed the stream over; the canceller must close it."""
+    parked = threading.Event()
+
+    class _SignallingHandoff(capture._OpenHandoff):
+        __slots__ = ()
+
+        def __setattr__(self, name: str, value: object) -> None:
+            super().__setattr__(name, value)
+            if name == "stream" and value is not None:
+                parked.set()
+
+    monkeypatch.setattr(capture, "_OpenHandoff", _SignallingHandoff)
     mic = capture.MicrophoneCapture(device=3, access_gate=lambda: True)
     opener = asyncio.create_task(mic.__aenter__())
     await _wait_until(slow_stream.created)
@@ -118,12 +133,16 @@ async def test_cancel_as_the_open_finishes_still_closes_the_stream(
     await _wait_until(stream.opening)
 
     stream.release.set()
+    # Blocking the loop on purpose: once the worker has parked the stream, its
+    # result cannot reach the task before this cancel does.
+    assert parked.wait(5.0)
     opener.cancel()
     with pytest.raises(asyncio.CancelledError):
         await opener
 
     await _wait_until(stream.closed)
     assert stream.aborted
+    assert stream.closed_by == "mic-orphan-discard"
     assert mic._stream is None
 
 

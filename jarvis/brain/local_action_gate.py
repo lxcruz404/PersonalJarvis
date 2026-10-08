@@ -1081,7 +1081,7 @@ def _match_scripted_local_plan(text: str) -> LocalActionPlan | None:
     return None
 
 
-_TOKEN_PUNCTUATION = ".,;:!?\u00bf\u00a1\"'()"
+_GLUED_PUNCTUATION = ".,;:!?\u00bf\u00a1\"'()"
 
 
 def _extract_known_app(text: str) -> str | None:
@@ -1097,7 +1097,7 @@ def _extract_known_app(text: str) -> str | None:
     non-open sentence ("ich höre Spotify gern") never launches anything.
     """
     # Punctuation glued to a word ("Spotify," / "Discord?") must not hide it.
-    tokens = [t for t in (raw.strip(_TOKEN_PUNCTUATION) for raw in text.split()) if t]
+    tokens = [t for t in (raw.strip(_GLUED_PUNCTUATION) for raw in text.split()) if t]
     for window in (2, 1):
         for i in range(len(tokens) - window + 1):
             phrase = " ".join(tokens[i:i + window])

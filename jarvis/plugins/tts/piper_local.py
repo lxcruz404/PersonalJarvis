@@ -326,14 +326,18 @@ class PiperLocalTTS:
                 with suppress(TimeoutError):
                     await asyncio.wait_for(asyncio.shield(worker), timeout=1.0)
 
-    async def _ensure_client(self) -> None:
-        """Warm-up hook the speech pipeline calls; loads the default voice.
+    async def _ensure_client(self, language_code: str | None = None) -> None:
+        """Warm-up hook the speech pipeline calls; loads the voice it will need.
+
+        ``language_code`` is the language the assistant answers in, so the voice
+        warmed is the one the first reply speaks with; without it the first
+        installed voice of the profile is warmed.
 
         Kept cheap and failure-tolerant: warming is an optimisation, and a host
         with no voices downloaded must still boot and tell the user why it
         cannot speak when a turn actually needs it.
         """
-        model_id = self._resolve_voice(None, None)
+        model_id = self._resolve_voice(None, language_code)
         if model_id is None:
             return
         try:

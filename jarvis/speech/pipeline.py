@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import enum
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -7104,7 +7105,18 @@ class SpeechPipeline:
         # wake warm-up rather than adding it on afterwards. Idempotent: a later
         # lazy ``_ensure_client`` on first synth is a harmless no-op.
         async def _init_tts() -> None:
-            await asyncio.to_thread(self._tts._ensure_client)
+            ensure = self._tts._ensure_client
+            if not inspect.iscoroutinefunction(ensure):
+                await asyncio.to_thread(ensure)
+                return
+            # An async hook (the on-device voice) must be awaited: handing it
+            # to a worker thread only built a coroutine nobody ran, so the
+            # first answer paid the voice load. A hook that picks its voice by
+            # language gets the language this assistant is set to answer in.
+            if "language_code" in inspect.signature(ensure).parameters:
+                await ensure(language_code=self._output_language(None, ""))
+            else:
+                await ensure()
 
         tts_task = asyncio.create_task(_init_tts(), name="warmup-tts-init")
         try:

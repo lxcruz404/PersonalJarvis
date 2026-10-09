@@ -144,6 +144,8 @@ async def test_short_feed_gap_inside_the_buffer_injects_nothing(monkeypatch) -> 
     Ramping down here would carve a dip out of speech that was never going to
     break — with a deep buffer, ordinary network jitter is exactly this case.
     """
+    # Pins the reply's own bytes; the fresh-stream lead-in has its own test.
+    monkeypatch.setattr(player_module, "FRESH_STREAM_LEAD_IN_MS", 0)
     player, written = _writing_player(monkeypatch, buffer_s=0.4)
     tone = np.full(4_000, 6_000, dtype=np.int16)
 

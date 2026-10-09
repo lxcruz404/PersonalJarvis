@@ -73,6 +73,8 @@ def test_mute_discards_an_already_scaled_long_write_and_native_buffer(monkeypatc
 
 
 async def test_active_tts_is_consumed_while_muted_and_only_fresh_pcm_resumes(monkeypatch):
+    # Pins the reply's own samples; the fresh-stream lead-in has its own test.
+    monkeypatch.setattr("jarvis.audio.player.FRESH_STREAM_LEAD_IN_MS", 0)
     player, streams = player_and_streams(monkeypatch)
     consumed = []
 

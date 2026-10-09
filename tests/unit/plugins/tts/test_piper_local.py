@@ -272,3 +272,12 @@ def test_module_exposes_the_expected_provider_surface() -> None:
     """Structural TTSProvider conformance — no inheritance, so assert it."""
     for attribute in ("synthesize", "list_voices", "name", "supports_streaming"):
         assert hasattr(piper_local.PiperLocalTTS, attribute)
+
+
+def test_warm_up_loads_the_voice_of_the_reply_language(all_voices_installed) -> None:
+    """Warming for Spanish loads the Spanish voice, the one the first reply needs."""
+    tts = PiperLocalTTS()
+
+    asyncio.run(tts._ensure_client(language_code="es"))
+
+    assert list(all_voices_installed) == ["vits-piper-es_ES-davefx-medium"]

@@ -106,6 +106,8 @@ async def test_continuous_feed_injects_nothing(monkeypatch) -> None:
     """A healthy back-to-back feed must reach the device byte-identical —
     no ramps, no inserted silence (the pre-fix contract stays intact).
     """
+    # Pins the reply's own bytes; the fresh-stream lead-in has its own test.
+    monkeypatch.setattr(player_module, "FRESH_STREAM_LEAD_IN_MS", 0)
     player, written = _make_player(monkeypatch)
     tone = np.full(4_000, 5_000, dtype=np.int16)
 

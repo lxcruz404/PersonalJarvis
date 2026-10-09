@@ -12,6 +12,7 @@ single authoritative output-language decision still reaches the CLI model.
 from __future__ import annotations
 
 from jarvis.plugins.brain.cli_prompt_context import (
+    extract_identity_directive,
     extract_reply_language_directive,
     render_cli_standing_instructions,
 )
@@ -103,3 +104,36 @@ def test_renders_empty_state_as_current_state_not_binding_preferences() -> None:
     assert "No active user preferences are currently set" in rendered
     assert "do not continue or imitate" in rendered
     assert "Apply these as binding output-style preferences" not in rendered
+
+
+def test_extracts_the_identity_sentence_only() -> None:
+    system = (
+        "YOUR NAME IS DARÍO. You are Darío, the user's personal assistant.\n"
+        "## Who I am\nSOUL CHARACTER\n\nROUTER PROMPT"
+    )
+    assert extract_identity_directive(system) == (
+        "YOUR NAME IS DARÍO. You are Darío, the user's personal assistant."
+    )
+
+
+def test_identity_is_empty_without_a_name() -> None:
+    assert extract_identity_directive("You are the user's personal assistant.") == ""
+    assert extract_identity_directive(None) == ""
+
+
+def test_the_character_block_is_cut_from_the_router_prompt() -> None:
+    from jarvis.plugins.brain.cli_prompt_context import extract_character_block
+
+    system = (
+        "YOUR NAME IS DARÍO. You are Darío.\n\n"
+        "## Your character (SOUL.md)\n"
+        "### Who you are\n"
+        "- A Colombian guy in his thirties.\n\n"
+        "PERSONA HANDBOOK THAT FOLLOWS"
+    )
+    block = extract_character_block(system)
+    assert block.startswith("## Your character (SOUL.md)")
+    assert "A Colombian guy in his thirties." in block
+    assert "PERSONA HANDBOOK" not in block
+    assert extract_character_block("no character here") == ""
+    assert extract_character_block(None) == ""

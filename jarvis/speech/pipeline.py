@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import enum
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -21,6 +22,7 @@ import random
 import re
 import threading
 import time
+import unicodedata
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -450,18 +452,38 @@ async def _echo_brain(text: str) -> str:
 # voice-output policy; only artifacts must be English.)
 _BRAIN_UNAVAILABLE_PHRASE: dict[str, str] = {
     "de": (
-        "Entschuldige, Ruben — ich erreiche gerade keines meiner Sprachmodelle. "
+        "Entschuldige — ich erreiche gerade keines meiner Sprachmodelle. "
         "Bitte prüf kurz, ob bei den Anbietern noch Guthaben ist."
     ),
     "en": (
-        "Sorry, Ruben — I can't reach any of my language models right now. "
+        "Sorry — I can't reach any of my language models right now. "
         "Please check whether your providers still have credit."
     ),
     "es": (
-        "Lo siento, Ruben — ahora mismo no puedo acceder a ninguno de mis "
+        "Lo siento — ahora mismo no puedo acceder a ninguno de mis "
         "modelos de lenguaje. Comprueba si tus proveedores aún tienen crédito."
     ),
 }
+
+# Spoken acknowledgements of the voice privacy toggle ("don't look" / "look
+# again"), said instead of a brain turn. One per supported language, picked with
+# ``_phrase_lang``; they name nobody, because the user's name is not a constant.
+_PRIVACY_PAUSE_ACK: dict[str, str] = {
+    "de": "Okay, ich schaue nicht mehr hin.",
+    "en": "Okay, I've stopped looking.",
+    "es": "Listo, ya no estoy mirando.",
+}
+_PRIVACY_RESUME_ACK: dict[str, str] = {
+    "de": "Ich sehe wieder.",
+    "en": "I can see again.",
+    "es": "Ya puedo ver otra vez.",
+}
+
+
+def _privacy_ack(action: str, lang: str | None) -> str:
+    """The spoken acknowledgement for a privacy ``"pause"`` or ``"resume"``."""
+    table = _PRIVACY_PAUSE_ACK if action == "pause" else _PRIVACY_RESUME_ACK
+    return table[_phrase_lang(lang)]
 
 # AD-OE6 zero-silent-drop fallback for the *final* utterance STT. A cloud STT
 # (Groq/OpenAI/Deepgram) can transiently 429 when the in-utterance stability
@@ -1919,23 +1941,33 @@ def _strip_paraphrase_prefix(response: str) -> str:
 
 
 def _is_non_substantive_response(response: str) -> bool:
-    """True fuer reine ACK-/Butler-Filler, die nicht gesprochen werden sollen."""
+    """True for pure acknowledgement/butler filler that must not be spoken."""
     return bool(_NON_SUBSTANTIVE_RESPONSE_RE.match(response.strip()))
 
 
 def _smalltalk_fallback_for_non_substantive(prompt: str, lang: str) -> str | None:
     """Return a short answer when a smalltalk prompt produced only filler."""
-    low = prompt.strip().lower()
+    # Accents folded away so "cómo estás", "como estás" and "como estas" all
+    # match one marker, however the words were transcribed or typed.
+    low = "".join(
+        ch
+        for ch in unicodedata.normalize("NFKD", prompt.strip().lower())
+        if not unicodedata.combining(ch)
+    )
     wellbeing_markers = (
         "wie geht",
         "how are you",
         "how's it going",
+        "como estas",
     )
     if not any(marker in low for marker in wellbeing_markers):
         return None
-    if _phrase_lang(lang) == "de":
-        return "Mir geht's gut, Ruben. Was machen wir als Naechstes?"
-    return "I'm good, Ruben. What's next?"
+    phrase_lang = _phrase_lang(lang)
+    if phrase_lang == "de":
+        return "Mir geht's gut. Was machen wir als Naechstes?"
+    if phrase_lang == "es":
+        return "Todo bien. ¿Qué hacemos ahora?"
+    return "I'm good. What's next?"
 
 
 _INCOMPLETE_TAIL_RE = re.compile(
@@ -7073,7 +7105,18 @@ class SpeechPipeline:
         # wake warm-up rather than adding it on afterwards. Idempotent: a later
         # lazy ``_ensure_client`` on first synth is a harmless no-op.
         async def _init_tts() -> None:
-            await asyncio.to_thread(self._tts._ensure_client)
+            ensure = self._tts._ensure_client
+            if not inspect.iscoroutinefunction(ensure):
+                await asyncio.to_thread(ensure)
+                return
+            # An async hook (the on-device voice) must be awaited: handing it
+            # to a worker thread only built a coroutine nobody ran, so the
+            # first answer paid the voice load. A hook that picks its voice by
+            # language gets the language this assistant is set to answer in.
+            if "language_code" in inspect.signature(ensure).parameters:
+                await ensure(language_code=self._output_language(None, ""))
+            else:
+                await ensure()
 
         tts_task = asyncio.create_task(_init_tts(), name="warmup-tts-init")
         try:
@@ -15889,9 +15932,9 @@ class SpeechPipeline:
             self._hold_for_resumed_speech(text, lang)
             return True
 
-        # Privacy-Voice-Toggle (Wave-2 B7): matcht Privacy-Phrasen aus Config,
-        # pausiert/resumed den VisionContextProvider und spricht kurzen ACK
-        # BEVOR das Brain aufgerufen wird. Brain-Call wird uebersprungen.
+        # Voice privacy toggle (Wave-2 B7): match the configured privacy
+        # phrases, pause/resume the VisionContextProvider and speak a short
+        # acknowledgement BEFORE any brain call. The brain call is skipped.
         if self._vision_provider is not None:
             _action = self._match_privacy_phrase(text)
             if _action == "pause":
@@ -15899,16 +15942,16 @@ class SpeechPipeline:
                 try:
                     self._vision_provider.pause()
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("Vision-pause() fehlgeschlagen: %s", exc)
+                    log.warning("Vision pause() failed: %s", exc)
                 await self._set_turn_state(TurnTakingState.JARVIS_SPEAKING)
                 try:
                     await self._speak(
-                        "Ja, Ruben.",  # i18n-allow: bilingual TTS voice ack
+                        _privacy_ack("pause", lang),
                         language=lang,
                         kind=SPOKEN_KIND_PRIVACY,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("Privacy-ACK-speak fehlgeschlagen: %s", exc)
+                    log.warning("Speaking the privacy acknowledgement failed: %s", exc)
                 await self._set_turn_state(TurnTakingState.LISTENING)
                 return True
             if _action == "resume":
@@ -15916,16 +15959,16 @@ class SpeechPipeline:
                 try:
                     self._vision_provider.resume()
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("Vision-resume() fehlgeschlagen: %s", exc)
+                    log.warning("Vision resume() failed: %s", exc)
                 await self._set_turn_state(TurnTakingState.JARVIS_SPEAKING)
                 try:
                     await self._speak(
-                        "Ich sehe wieder.",  # i18n-allow: bilingual TTS voice ack
+                        _privacy_ack("resume", lang),
                         language=lang,
                         kind=SPOKEN_KIND_PRIVACY,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("Privacy-ACK-speak fehlgeschlagen: %s", exc)
+                    log.warning("Speaking the privacy acknowledgement failed: %s", exc)
                 await self._set_turn_state(TurnTakingState.LISTENING)
                 return True
 

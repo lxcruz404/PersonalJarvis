@@ -83,6 +83,13 @@ _GIT_READ = frozenset({
     "shortlog", "tag", "ls-files", "rev-parse", "config",
 })
 _GIT_DESTRUCTIVE = frozenset({"reset", "clean"})
+# Power subcommands of the Linux service managers: they end the session the
+# same way ``shutdown`` does, so they ask first like ``shutdown`` does.
+_POWER_MANAGERS = frozenset({"systemctl", "loginctl"})
+_POWER_SUBCOMMANDS = frozenset({
+    "poweroff", "reboot", "halt", "kexec", "suspend", "hibernate",
+    "hybrid-sleep", "suspend-then-hibernate",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +131,8 @@ def _classify_segment(segment: str) -> tuple[str, str]:
         if sub in _GIT_READ:
             return READ, f"git {sub}"
         return MODIFY, f"git {sub}".strip()
+    if word in _POWER_MANAGERS and sub in _POWER_SUBCOMMANDS:
+        return DESTRUCTIVE, f"{word} {sub}"
     if word == "reg":
         return (DESTRUCTIVE if sub == "delete" else MODIFY), f"reg {sub}".strip()
 

@@ -76,6 +76,14 @@ TTS_SAMPLE_RATE = 24_000  # Gemini 3.1 Flash TTS output rate
 # persistent PortAudio stream keeps the waveform continuous across batches.
 TTS_FIRST_WRITE_BUFFER_MS = 40
 TTS_WRITE_BUFFER_MS = 120
+# Silence written ahead of the first audio on a FRESHLY OPENED stream. Starting
+# an output stream wakes the sink, and a Bluetooth A2DP headset needs a few
+# hundred milliseconds to resume its link: whatever is written first plays into
+# that gap and is never heard. Live 2026-10-08 on a Bluetooth headset: the reply
+# text was complete on screen while its first word was missing from the audio,
+# and every answer reopened the stream (earcon 24 kHz, local voice 22.05 kHz).
+# A reused stream is already running, so it gets no lead-in.
+FRESH_STREAM_LEAD_IN_MS = 250
 _MAX_REPORTED_OUTPUT_LATENCY_S = 5.0
 _ONE_SHOT_CANCEL_JOIN_TIMEOUT_S = 0.5
 
@@ -1437,6 +1445,10 @@ class AudioPlayer:
             # the main answer is dropped here rather than queued behind it.
             if should_play is not None and not should_play():
                 return False
+            # Set by the worker thread that opened a new stream; consumed by
+            # the next flush, which leads that stream's audio with silence.
+            fresh_stream = [False]
+
             def _ensure_stream(
                 needed_rate: int, output_generation: int,
             ) -> tuple[sd.OutputStream, int]:
@@ -1474,6 +1486,7 @@ class AudioPlayer:
                         self._active_stream = new_stream
                         self._active_source_rate = needed_rate
                         self._active_device_rate = device_rate
+                        fresh_stream[0] = True
                         return new_stream, device_rate
                 # stop() won while the worker opened PortAudio. Close the late
                 # handle locally; never publish it as the active stream.
@@ -1520,6 +1533,12 @@ class AudioPlayer:
                     # Where the written waveform ends — the stall fade-out
                     # ramps down from here when the feed later runs dry.
                     last_flushed_sample = int(arr[-1])
+                if fresh_stream[0]:
+                    fresh_stream[0] = False
+                    lead_in = np.zeros(
+                        pending_rate * FRESH_STREAM_LEAD_IN_MS // 1000, dtype=np.int16
+                    )
+                    arr = np.concatenate([lead_in, arr])
                 # Tell the UI how long this block will be audible BEFORE the
                 # blocking write below. _write_samples blocks for the whole
                 # playback with no further level, so the level tap alone makes

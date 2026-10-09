@@ -49,6 +49,8 @@ from jarvis.core.process_utils import NO_WINDOW_CREATIONFLAGS
 from jarvis.core.protocols import BrainDelta, BrainRequest
 
 from .cli_prompt_context import (
+    extract_character_block,
+    extract_identity_directive,
     extract_reply_language_directive,
     render_cli_standing_instructions,
     render_structured_prompt,
@@ -79,9 +81,11 @@ _BINARY_CANDIDATES: tuple[str, ...] = ("claude", "claude.cmd", "claude.exe")
 _DISALLOWED_TOOLS: tuple[str, ...] = ("Bash", "Edit", "Write", "NotebookEdit")
 
 _CLI_SYSTEM = (
-    "You are Jarvis, a concise and friendly voice assistant. Answer the user's "
+    "You are the user's concise and friendly voice assistant. Answer the user's "
     "message directly in one to three short sentences. Reply in plain text only "
-    "— do not run any commands, do not read or edit files, do not use tools."
+    "— do not run any commands, do not read or edit files, do not use tools. "
+    "Your reply is usually read aloud, so write no emoji, no markdown and no "
+    "signature or sign-off line."
 )
 
 # How many recent turns ride along on the conversational path. Every token is
@@ -329,7 +333,36 @@ class ClaudeCliBrain:
                 return argv, payload or render_structured_prompt(req)
             return argv, render_structured_prompt(req)
 
-        lines: list[str] = [_CLI_SYSTEM, ""]
+        # A conversational turn is a reply, not agent work: the same lean set
+        # as a structured turn. Its prompt already forbids every tool, and in
+        # print mode a tool needing approval is refused anyway, so keeping the
+        # built-in tools bought nothing but start-up time and prompt weight.
+        known = cli_flags or frozenset()
+        for flag, args in _FAST_STRUCTURED_ARGS:
+            if flag in known:
+                argv += args
+
+        # Who answers: the identity sentence (the name the user gave the
+        # assistant) and its character from SOUL.md, then the reply rules.
+        # As the CLI's system prompt they replace its own coding-agent prompt,
+        # so the model speaks as the assistant instead of as a CLI tool.
+        persona = "\n\n".join(
+            part
+            for part in (
+                extract_identity_directive(req.system),
+                extract_character_block(req.system),
+                _CLI_SYSTEM,
+            )
+            if part
+        )
+        lines: list[str] = []
+        if (
+            "--system-prompt" in known
+            and len(persona) + sum(len(arg) + 1 for arg in argv) <= _ARGV_BUDGET
+        ):
+            argv += ["--system-prompt", persona]
+        else:
+            lines += [persona, ""]
         prefs = render_cli_standing_instructions(req.system)
         convo = [
             message

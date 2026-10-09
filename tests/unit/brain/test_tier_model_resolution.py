@@ -187,3 +187,40 @@ def test_user_selected_deep_model_resolves_for_every_provider(
     mgr = BrainManager.from_tier_config("router", cfg, EventBus())
 
     assert mgr._deep_model(provider) == deep_pick
+
+
+def test_a_keyless_install_on_a_claude_subscription_keeps_its_brain_in_the_chain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``primary = "claude-cli"`` with no model and no key still answers.
+
+    claude-cli has no tier default model (it runs the account's own default),
+    so the active-provider block appended nothing, every keyed provider was
+    dead-listed, and each voice and chat turn ended in the missing-key apology.
+    """
+    monkeypatch.setattr("jarvis.core.config.get_secret_any", lambda *_a, **_k: None)
+
+    cfg = JarvisConfig()
+    cfg.brain.primary = "claude-cli"
+
+    mgr = BrainManager.from_tier_config("router", cfg, EventBus())
+
+    for level in ("fast", "deep", "code"):
+        chain = mgr._build_fallback_chain(level)
+        assert chain[0] == ("claude-cli", None), (level, chain)
+
+
+def test_a_model_picked_for_claude_cli_drives_its_chain_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("jarvis.core.config.get_secret_any", lambda *_a, **_k: None)
+
+    cfg = JarvisConfig()
+    cfg.brain.primary = "claude-cli"
+    cfg.brain.providers["claude-cli"] = BrainProviderConfig(model="haiku")
+
+    mgr = BrainManager.from_tier_config("router", cfg, EventBus())
+
+    chain = mgr._build_fallback_chain("fast")
+    assert chain[0] == ("claude-cli", "haiku")
+    assert ("claude-cli", None) not in chain

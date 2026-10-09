@@ -25,6 +25,7 @@ import asyncio
 import threading
 from collections.abc import AsyncIterator
 
+import numpy as np
 import pytest
 
 import jarvis.audio.player as player_module
@@ -126,9 +127,11 @@ async def test_first_write_uses_low_latency_prefix_then_larger_batches(
 
     await player.play_chunks(_twenty_ms_chunks(12))
 
-    assert writes[0] == 960  # 40 ms at 24 kHz
+    # The stream is freshly opened, so its first write also carries the lead-in.
+    lead = 24_000 * player_module.FRESH_STREAM_LEAD_IN_MS // 1000
+    assert writes[0] == lead + 960  # 40 ms of reply at 24 kHz
     assert writes[1] == 2_880  # steady-state 120 ms batch
-    assert sum(writes) == 12 * 480
+    assert sum(writes) == lead + 12 * 480
 
 
 @pytest.mark.asyncio
@@ -393,3 +396,31 @@ async def test_one_shot_blob_is_followed_by_a_buffer_deep_silent_tail(monkeypatc
     blob_samples = 2_400  # 100 ms at 24 kHz, well under the 0.4 s buffer
     await player.play_pcm(b"\x10\x00" * blob_samples, sample_rate=24_000)
     assert written == [blob_samples + int(24_000 * 0.45)]
+
+
+@pytest.mark.asyncio
+async def test_fresh_stream_leads_with_silence_reused_stream_does_not(monkeypatch) -> None:
+    """A newly opened stream gets a silent lead-in; a reused one starts at once.
+
+    A Bluetooth sink resumes its link when a stream starts and drops what is
+    written during that gap, so the first word of a reply went missing.
+    """
+    player, _events = _make_player(monkeypatch)
+    written: list[np.ndarray] = []
+
+    def record_write(stream, arr, src_rate, dev_rate, **_kwargs):
+        written.append(np.array(arr, copy=True))
+
+    monkeypatch.setattr(player, "_write_samples", record_write)
+    pcm = (np.full(4_000, 1_000, dtype=np.int16)).tobytes()
+    lead = 24_000 * player_module.FRESH_STREAM_LEAD_IN_MS // 1000
+
+    await player.play_chunks(_one_chunk(pcm))
+    await player.play_chunks(_one_chunk(pcm))
+
+    first, reused = written[0], written[1]
+    assert lead > 0
+    assert len(first) == 4_000 + lead
+    assert not first[:lead].any(), "the lead-in must be silence"
+    assert (first[lead:] == 1_000).all(), "the reply itself must follow intact"
+    assert len(reused) == 4_000 and (reused == 1_000).all()

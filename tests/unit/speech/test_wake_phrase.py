@@ -124,6 +124,19 @@ def test_arbitrary_phrase_tolerates_diacritic_transcription_drift() -> None:
     assert m.search("hey rubén") is not None
 
 
+def test_accented_phrase_matches_with_and_without_the_accent() -> None:
+    # A Spanish name typed with its accent must fire on either transcript
+    # spelling, and a decomposed (NFD) phrase must behave like the composed one.
+    import unicodedata
+
+    for phrase in ("Darío", unicodedata.normalize("NFD", "Darío")):
+        m = compile_wake_matcher(phrase)
+        assert m.search("darío") is not None
+        assert m.search("dario") is not None
+        assert m.search("oye dario, abre el navegador") is not None
+        assert m.search("buenos días a todos") is None
+
+
 def test_prefix_phrase_requires_the_prefix() -> None:
     # User mandate 2026-07-02 (REVERSES the 2026-06-29 "prefix optional"
     # trade-off): Jarvis kept activating on the bare core word inside ordinary

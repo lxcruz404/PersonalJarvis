@@ -430,3 +430,34 @@ async def test_ready_cue_task_cancelled_on_shutdown(monkeypatch) -> None:
 
     assert task.cancelled(), "the ready-cue task must be cancelled, not leaked"
     assert pipe._warmup_ready_cue_task is None
+
+
+class FakeLocalVoiceTts(FakeTts):
+    """An on-device voice whose warm-up hook is async and picks by language."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.warmed_languages: list[str | None] = []
+
+    async def _ensure_client(self, language_code=None) -> None:  # type: ignore[override]
+        self.ensure_calls += 1
+        self.warmed_languages.append(language_code)
+
+
+@pytest.mark.asyncio
+async def test_async_tts_warmup_hook_is_awaited_with_the_reply_language(monkeypatch) -> None:
+    """An async warm-up hook runs (not just builds a coroutine) for the reply language.
+
+    Handing an ``async def _ensure_client`` to a worker thread only created a
+    coroutine nobody awaited, so the local voice loaded on the first answer
+    instead (2.4 s live on 2026-10-08).
+    """
+    pipe = _new_pipe(monkeypatch, bus=FakeBus())
+    pipe._tts = FakeLocalVoiceTts()
+    monkeypatch.setattr(pipe, "_output_language", lambda *_a, **_k: "es", raising=False)
+
+    await pipe._warmup()
+    await pipe._deferred_warmup_task
+
+    assert pipe._tts.ensure_calls == 1
+    assert pipe._tts.warmed_languages == ["es"]

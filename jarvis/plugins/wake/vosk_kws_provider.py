@@ -100,6 +100,7 @@ import json
 import logging
 import threading
 import time
+import unicodedata
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -152,6 +153,42 @@ def _parse_recognizer_json(raw: str, *, where: str) -> dict:
             log.debug("vosk-kws: malformed recognizer JSON at %s (%s)", where, exc)
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _grammar_json(alternatives: Sequence[str]) -> str:
+    """Serialize a Vosk grammar with every non-ASCII letter left as UTF-8.
+
+    libvosk's JSON parser copies a ``\\uXXXX`` escape as literal text instead
+    of decoding it. ``json.dumps``' default ASCII escaping therefore turned
+    "darío" into the word "dar\\u00edo", which no lexicon holds: Vosk dropped
+    it with a warning ``SetLogLevel(-1)`` hides, the grammar kept only
+    "[unk]", and an accented wake word could never fire.
+    """
+    return json.dumps(list(alternatives), ensure_ascii=False)
+
+
+def _canonical_phrase(phrase: str) -> str:
+    """The wake phrase as the lexicon spells it: composed, plain words.
+
+    Grammar words reach libvosk as raw UTF-8 bytes and are split on ASCII
+    spaces only, so a decomposed "darío" (``i`` plus a combining accent, as a
+    macOS paste or some input methods produce), a no-break space between the
+    words, or punctuation typed with the phrase ("Oye, Darío") matches no
+    lexicon entry. Punctuation inside a word ("don't") is kept.
+    """
+    text = unicodedata.normalize("NFKC", phrase)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    words = (_strip_edge_punctuation(word) for word in text.split())
+    return " ".join(word for word in words if word)
+
+
+def _strip_edge_punctuation(word: str) -> str:
+    start, end = 0, len(word)
+    while start < end and unicodedata.category(word[start]).startswith("P"):
+        start += 1
+    while end > start and unicodedata.category(word[end - 1]).startswith("P"):
+        end -= 1
+    return word[start:end]
 
 # Minimum per-word grammar confidence for the verify RE-SCORE over the ring
 # window. This is the precision anchor (live forensic 2026-07-06, "Hey Ruben"
@@ -790,7 +827,7 @@ class VoskKwsProvider:
         # transcript text; never exposes an unverified hit. None = no visual.
         early_candidate_listener: Callable[[bool], Awaitable[None]] | None = None,
     ) -> None:
-        self._phrase = phrase.strip()
+        self._phrase = _canonical_phrase(phrase)
         self._keyword = keyword or "_".join(normalize_phrase_for_match(phrase)) or "wake"
         self._model_path = model_path
         paths = [p for p in (model_paths or ()) if p]
@@ -813,7 +850,7 @@ class VoskKwsProvider:
         raw_tokens = [t for t in self._phrase.lower().split() if t]
         self._competition_grammar: str | None = None
         if has_prefix and raw_tokens:
-            self._competition_grammar = json.dumps(
+            self._competition_grammar = _grammar_json(
                 [self._phrase.lower(), f"{raw_tokens[0]} [unk]", "[unk]"]
             )
         # One-shot flag for the "competition degraded to its static grammar"
@@ -934,7 +971,7 @@ class VoskKwsProvider:
         return model
 
     def _new_grammar_rec(self, path: str | None = None) -> Any:
-        grammar = json.dumps([self._phrase.lower(), "[unk]"])
+        grammar = _grammar_json([self._phrase.lower(), "[unk]"])
         return build_recognizer(
             self._ensure_model(path), self._sample_rate, grammar
         )
@@ -1824,7 +1861,7 @@ class VoskKwsProvider:
             # grammar still runs — a weaker but valid competition.
             set_grammar = getattr(rec, "SetGrammar", None)
             if callable(set_grammar):
-                set_grammar(json.dumps(alternatives))
+                set_grammar(_grammar_json(alternatives))
             elif not getattr(self, "_warned_static_competition", False):
                 # Say so ONCE, at WARNING. The static grammar is a measurably
                 # weaker judge (bench 2026-08-22: 13 false fires on 40
@@ -2198,6 +2235,7 @@ def vosk_model_supports_phrase(model_path: str, phrase: str) -> bool:
     is DELIBERATELY off the boot path (it loads the model, ~1.5 s) — call it
     from a user action (self-test) or a background task, never in ``_run_backend``.
     """
+    phrase = _canonical_phrase(phrase)
     core = phrase_core_for_match(phrase)
     if not core:
         return False
@@ -2220,7 +2258,7 @@ def vosk_model_supports_phrase(model_path: str, phrase: str) -> bool:
             KaldiRecognizer,
             Model(model_path),
             16_000,
-            json.dumps([phrase.lower(), "[unk]"]),
+            _grammar_json([phrase.lower(), "[unk]"]),
         )
     except Exception:  # noqa: BLE001 — probe failure must not reject a real word
         return True

@@ -206,6 +206,45 @@ def test_callback_capable_engine_yields_incremental_audio(
     assert all(chunks)
 
 
+def test_a_long_reply_is_spoken_to_its_end(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The engine goes on only while the callback returns non-zero, as
+    sherpa-onnx does. A callback answering 0 for "continue" cut every reply
+    to its first chunk, about one second of speech."""
+
+    class SherpaLikeEngine:
+        sample_rate = 22_050
+
+        def generate(self, _text, _speaker, _speed, *, callback):
+            produced = []
+            for level in (0.1, 0.2, 0.3):
+                samples = np.full(100, level, dtype=np.float32)
+                produced.append(samples)
+                if callback(samples, level) == 0:
+                    break
+            return _FakeAudio(seconds=0.0)
+
+    monkeypatch.setattr(
+        "jarvis.speech.local_models.bundle_present",
+        lambda _model_id, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        PiperLocalTTS,
+        "_build_engine",
+        lambda _self, _model_id: SherpaLikeEngine(),
+    )
+    tts = PiperLocalTTS()
+
+    async def collect() -> list[bytes]:
+        return [
+            chunk.pcm
+            async for chunk in tts.synthesize(
+                "Hola, soy Darío. ¿Qué más? ¿En qué te ayudo?", language_code="es-ES"
+            )
+        ]
+
+    assert len(asyncio.run(collect())) == 3
+
+
 def test_voices_cover_every_supported_reply_language() -> None:
     """The catalog must not leave a supported language mute.
 
@@ -233,3 +272,12 @@ def test_module_exposes_the_expected_provider_surface() -> None:
     """Structural TTSProvider conformance — no inheritance, so assert it."""
     for attribute in ("synthesize", "list_voices", "name", "supports_streaming"):
         assert hasattr(piper_local.PiperLocalTTS, attribute)
+
+
+def test_warm_up_loads_the_voice_of_the_reply_language(all_voices_installed) -> None:
+    """Warming for Spanish loads the Spanish voice, the one the first reply needs."""
+    tts = PiperLocalTTS()
+
+    asyncio.run(tts._ensure_client(language_code="es"))
+
+    assert list(all_voices_installed) == ["vits-piper-es_ES-davefx-medium"]

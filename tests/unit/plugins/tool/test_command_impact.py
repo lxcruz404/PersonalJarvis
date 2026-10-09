@@ -64,6 +64,11 @@ def test_modify_commands(command: str) -> None:
         "dd if=/dev/zero of=/dev/sda",
         "shutdown -h now",
         "Stop-Computer",
+        "shutdown /s /t 0",
+        "systemctl poweroff",
+        "sudo systemctl reboot",
+        "systemctl suspend",
+        "loginctl poweroff",
         "git reset --hard HEAD~1",
         "git clean -fd",
         "reg delete HKCU\\Software\\Foo /f",
@@ -74,6 +79,10 @@ def test_modify_commands(command: str) -> None:
 )
 def test_destructive_commands(command: str) -> None:
     assert classify_command(command).level == DESTRUCTIVE
+
+
+def test_systemctl_without_a_power_subcommand_is_not_destructive() -> None:
+    assert classify_command("systemctl status ssh").level == MODIFY
 
 
 def test_powershell_verb_fallback() -> None:

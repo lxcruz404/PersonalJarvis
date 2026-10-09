@@ -174,10 +174,11 @@ Rules for the curator:
 
 ## Wikilinks
 
-Use double-bracket syntax `[[entities/ruben]]` or short form `[[ruben]]`
-when the slug is globally unique. Aliased links `[[entities/ruben|the user]]`
-are allowed but discouraged — prefer adding the alias to the entity's
-frontmatter and using the canonical short form.
+Use double-bracket syntax `[[entities/example-person]]` or short form
+`[[example-person]]` when the slug is globally unique. Aliased links
+`[[entities/example-person|the person]]` are allowed but discouraged — prefer
+adding the alias to the entity's frontmatter and using the canonical short
+form.
 
 A broken wikilink is a bug. The wiki curator MUST either create the
 missing page during the same ingest, or refuse the link and use plain

@@ -37,6 +37,7 @@ from jarvis.core.protocols import BrainDelta, BrainRequest
 
 from ._openai_base import stream_complete
 from .cli_prompt_context import (
+    extract_identity_directive,
     extract_reply_language_directive,
     render_cli_standing_instructions,
     render_structured_prompt,
@@ -288,7 +289,10 @@ def _build_cli_prompt(req: BrainRequest) -> str:
     would make it slow, expensive and confused. We send a light conversational
     instruction plus the last few user/assistant turns for context.
     """
-    lines: list[str] = [_CLI_SYSTEM, ""]
+    # The identity sentence opens the prompt so the model answers under the
+    # name the user gave the assistant.
+    identity = extract_identity_directive(req.system)
+    lines: list[str] = [identity, _CLI_SYSTEM, ""] if identity else [_CLI_SYSTEM, ""]
     prefs = render_cli_standing_instructions(req.system)
     # Last ~6 non-system, non-tool turns for context (older history is dropped to
     # keep the codex turn small — every token is slow + billed on the CLI path).

@@ -13,17 +13,20 @@ the identity directive is now emitted for EVERY resolved name except the neutral
 from __future__ import annotations
 
 from jarvis.brain.manager import BrainManager
+from jarvis.brain.router import SYSTEM_PROMPT as ROUTER_SYSTEM_PROMPT
 from jarvis.core.config import load_config
 
 
-def _manager_with_name(*, wake_phrase: str = "Hey Jarvis") -> BrainManager:
+def _manager_with_name(
+    *, wake_phrase: str = "Hey Jarvis", extra: str = "ROUTER DISCIPLINE BLOCK"
+) -> BrainManager:
     """A BrainManager with __init__ bypassed — only the attrs the prompt needs."""
     m = BrainManager.__new__(BrainManager)
     m._soul = None
     m._user_profile = None
     m._people = None
     m._core_memory = None
-    m._system_prompt_extra = "ROUTER DISCIPLINE BLOCK"
+    m._system_prompt_extra = extra
     m._wiki_context_suffix = ""
     m._reply_language = "auto"
     cfg = load_config()
@@ -56,3 +59,18 @@ def test_wake_phrase_is_the_only_name_source() -> None:
     assert "Du bist Computer" in prompt
     assert "YOUR NAME IS COMPUTER" in prompt
     assert "nicht Jarvis" not in prompt  # i18n-allow: literal system-prompt string matched in logic
+
+
+def test_router_prompt_names_neither_the_assistant_nor_the_user() -> None:
+    # The live router tier appends ROUTER_SYSTEM_PROMPT verbatim
+    # (brain/factory.py). It used to open with a hardcoded assistant name and
+    # call the user by the maintainer's name, so a renamed assistant was told
+    # two names and every user was addressed as someone else.
+    assert "Jarvis" not in ROUTER_SYSTEM_PROMPT
+    assert "Ruben" not in ROUTER_SYSTEM_PROMPT
+    assert "Dispatcher" in ROUTER_SYSTEM_PROMPT
+    # The assembled prompt still names the assistant once, from the wake word.
+    prompt = _manager_with_name(
+        wake_phrase="Oye Darío", extra=ROUTER_SYSTEM_PROMPT
+    )._build_system_prompt()
+    assert "Du bist Darío" in prompt
